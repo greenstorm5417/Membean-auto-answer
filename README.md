@@ -40,7 +40,7 @@ Before you begin, ensure you have met the following requirements:
 1. **Clone the Repository:**
 
    ```bash
-   git clone https://github.com/yourusername/membean-auto-answer.git
+   git clone https://github.com/greenstorm5417/membean-auto-answer.git
    cd membean-auto-answer
    ```
 
