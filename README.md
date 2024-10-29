@@ -129,3 +129,8 @@ If you run into any issues during installation, here are some common problems an
 ---
 
 By following this guide, you should be able to set up your environment and install all the required dependencies with minimal manual intervention. Enjoy working on the project!
+
+### Disclaimer
+
+This script is provided "as is" without any warranties, express or implied. By using this script, you acknowledge that any consequences or outcomes, whether expected or unexpected, are solely your responsibility. I am not liable for any damages, data loss, or issues arising from the use of this script. Use at your own risk. Always ensure you understand and comply with all relevant policies and regulations when using this software.
+
