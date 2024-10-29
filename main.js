@@ -1,4 +1,3 @@
-// main.js
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs').promises;
@@ -11,38 +10,92 @@ puppeteer.use(StealthPlugin());
 // Define the path to the JSON file
 const resultsFilePath = path.join(__dirname, 'results.json');
 
-// Helper function to introduce random delays
-const randomDelay = (min = 500, max = 1500) => {
-    return new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (max - min + 1)) + min));
+
+let currentMousePosition = { x: 0, y: 0 };
+
+const username = 'your email'
+const password = 'your password'
+
+
+// Helper Functions
+const randomDelay = (min = 500, max = 1500) => 
+    new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (max - min + 1)) + min));
+
+
+const generateMousePath = (startX, startY, endX, endY) => {
+    const path = [];
+    const distance = Math.hypot(endX - startX, endY - startY);
+    const steps = Math.max(Math.floor(distance / 10), 10); // Ensure at least 10 steps
+    
+    for (let i = 1; i <= steps; i++) {
+        const progress = i / steps;
+        
+        // Linear interpolation
+        let x = startX + (endX - startX) * progress;
+        let y = startY + (endY - startY) * progress;
+        
+        // Add slight random deviation that decreases as progress increases
+        const deviation = 5; // Maximum deviation in pixels
+        x += (Math.random() * deviation * 2 - deviation) * (1 - progress);
+        y += (Math.random() * deviation * 2 - deviation) * (1 - progress);
+        
+        path.push({ x: Math.round(x), y: Math.round(y) });
+    }
+    
+    return path;
 };
 
-// Helper function to move the mouse to an element before interacting
+
 const moveMouseToElement = async (page, element) => {
     const box = await element.boundingBox();
     if (box) {
-        const x = box.x + box.width / 2;
-        const y = box.y + box.height / 2;
-        await page.mouse.move(x, y, { steps: Math.floor(Math.random() * 10) + 5 }); // Random steps for smoother movement
-        await randomDelay(100, 300); // Small delay after moving
+        // Slight randomness in the target position
+        const deviation = 5; // pixels
+        const targetX = box.x + box.width / 2 + (Math.random() * deviation * 2 - deviation);
+        const targetY = box.y + box.height / 2 + (Math.random() * deviation * 2 - deviation);
+        
+        // Generate path from currentMousePosition to targetX, targetY
+        const path = generateMousePath(currentMousePosition.x, currentMousePosition.y, targetX, targetY);
+        
+        for (const point of path) {
+            await page.mouse.move(point.x, point.y);
+            await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 30) + 20)); // 20-50ms delay between moves
+        }
+        
+        // Update the current mouse position
+        currentMousePosition = { x: targetX, y: targetY };
     }
 };
 
-// Helper function to perform a human-like click
 const humanClick = async (page, element) => {
     await moveMouseToElement(page, element);
-    await randomDelay(100, 300); // Small delay before clicking
-    await element.click();
+    await randomDelay(100, 300);
+    try {
+        await element.click();
+        console.log("Human-like click performed.");
+    } catch (err) {
+        console.error("Error during human-like click:", err);
+    }
 };
 
-// Helper function to perform human-like typing
+
 const humanType = async (page, selector, text) => {
     const element = await page.$(selector);
     if (element) {
         await moveMouseToElement(page, element);
-        await randomDelay(200, 500); // Small delay before typing
-        await page.type(selector, text, { delay: Math.floor(Math.random() * 100) + 50 }); // Random delay between keystrokes
+        await randomDelay(300, 500);
+        
+        for (const char of text) {
+            await page.type(selector, char, { delay: Math.floor(Math.random() * 200) + 100 });
+            // Introduce a pause after typing a word
+            if (char === ' ' && Math.random() < 0.3) { // 30% chance to pause
+                await randomDelay(500, 1500);
+            }
+        }
+        console.log("Human-like typing performed.");
     }
 };
+
 
 // Initialize the results.json file if it doesn't exist
 const initializeResultsFile = async () => {
@@ -64,51 +117,44 @@ const initializeResultsFile = async () => {
     }
 };
 
-// Save queue to prevent concurrent writes
+// Save Queue to Prevent Concurrent Writes
 const saveQueue = [];
 let isSaving = false;
 
-// Function to enqueue save operations
-function enqueueSave(question, choices, answer) {
-    saveQueue.push({ question, choices, answer });
+const enqueueSave = (question, choices, answer, firstLetter = null) => {
+    saveQueue.push({ question, choices, answer, firstLetter });
     processQueue();
-}
+};
 
-// Function to process the save queue
-async function processQueue() {
-    if (isSaving || saveQueue.length === 0) {
-        return;
-    }
+const processQueue = async () => {
+    if (isSaving || saveQueue.length === 0) return;
 
     isSaving = true;
-    const { question, choices, answer } = saveQueue.shift();
+    const { question, choices, answer, firstLetter } = saveQueue.shift();
 
     try {
-        await saveResult(question, choices, answer);
+        await saveResult(question, choices, answer, firstLetter);
     } catch (err) {
         console.error('Error processing save operation:', err);
     } finally {
         isSaving = false;
-        processQueue(); // Process the next item in the queue
+        processQueue();
     }
-}
+};
 
-// Function to save the result to the JSON file without duplicates
-async function saveResult(question, choices, answer) {
+const saveResult = async (question, choices, answer, firstLetter) => {
     try {
         let data = [];
 
-        // Check if the file exists and read its content
         try {
             const fileContent = await fs.readFile(resultsFilePath, 'utf8');
-
-            if (fileContent.trim()) { // Check if file is not empty
+            if (fileContent.trim()) {
                 data = JSON.parse(fileContent);
             } else {
                 console.log('results.json is empty. Initializing with an empty array.');
             }
         } catch (err) {
-            if (err.code !== 'ENOENT') { // Ignore error if file does not exist
+            if (err.code !== 'ENOENT') {
                 if (err instanceof SyntaxError) {
                     console.error('Error parsing JSON file. The file might be corrupted. Initializing with an empty array.');
                     data = [];
@@ -117,55 +163,57 @@ async function saveResult(question, choices, answer) {
                     return;
                 }
             }
-            // If file does not exist, start with an empty array
         }
 
-        // Check for duplicate based on the question text
         const isDuplicate = data.some(entry => entry.question.toLowerCase() === question.toLowerCase());
 
         if (isDuplicate) {
             console.log('Duplicate entry found. Skipping save for this question.');
-            return; // Exit the function without saving
+            return;
         }
 
-        // Add the new result since it's not a duplicate
-        data.push({ question, choices, answer });
+        const newEntry = { question, choices, answer };
+        if (firstLetter) newEntry.firstLetter = firstLetter;
+        data.push(newEntry);
 
-        // Write the updated data back to the file
         await fs.writeFile(resultsFilePath, JSON.stringify(data, null, 2), 'utf8');
         console.log('Result saved to results.json');
     } catch (err) {
         console.error('Error saving result:', err);
     }
-}
+};
 
-// Function to start the Python LLM server
-const startLLMServer = () => {
-    const llmPath = path.join(__dirname,  'llm_server.py'); // Ensure the folder name has no spaces
+// LLM Server Management
+const startLLMServer = (serverType) => {
+    const serverFiles = {
+        main: 'llm_server.py',
+        fillBlank: 'llm_server_fill_blank.py'
+    };
+
+    const llmPath = path.join(__dirname,  serverFiles[serverType]);
     const llmProcess = spawn('python', [llmPath]);
 
     llmProcess.stdout.on('data', (data) => {
         const message = data.toString().trim();
-        console.log(`LLM: ${message}`);
+        console.log(`${serverType === 'main' ? 'Main' : 'FillBlank'} LLM: ${message}`);
     });
 
     llmProcess.stderr.on('data', (data) => {
-        console.error(`LLM Error: ${data.toString().trim()}`);
+        console.error(`${serverType === 'main' ? 'Main' : 'FillBlank'} LLM Error: ${data.toString().trim()}`);
     });
 
     llmProcess.on('close', (code) => {
-        console.log(`LLM server exited with code ${code}`);
+        console.log(`${serverType === 'main' ? 'Main' : 'FillBlank'} LLM server exited with code ${code}`);
     });
 
     return llmProcess;
 };
 
-// Function to wait for LLM server readiness
-const waitForLLMReady = (llmProcess) => {
+const waitForLLMReady = (llmProcess, readinessMessage = 'READY') => {
     return new Promise((resolve, reject) => {
         const onData = (data) => {
             const message = data.toString().trim();
-            if (message === 'READY') {
+            if (message === readinessMessage) {
                 resolve();
                 llmProcess.stdout.off('data', onData);
             }
@@ -179,25 +227,30 @@ const waitForLLMReady = (llmProcess) => {
         llmProcess.stdout.on('data', onData);
         llmProcess.stderr.on('data', onError);
 
-        // Optionally set a timeout
         setTimeout(() => {
-            reject(new Error('LLM server did not become ready in time.'));
+            reject(new Error(`LLM server did not become ready in time (waiting for "${readinessMessage}").`));
         }, 30000); // 30 seconds timeout
     });
 };
 
-// Function to send a prompt to the LLM and receive the answer
+// Communication with LLM Servers
 const getAnswerFromLLM = (llmProcess, prompt, validResponses) => {
     return new Promise((resolve, reject) => {
-        let answer = '';
-
         const onData = (data) => {
             const chunk = data.toString().trim();
-            // Check if chunk is a valid answer or 'Unknown' or an error
-            if (validResponses.includes(chunk.toUpperCase()) || chunk.toUpperCase() === 'UNKNOWN' || chunk.startsWith('Error:')) {
-                answer = chunk.toUpperCase();
-                resolve(answer);
-                llmProcess.stdout.off('data', onData); // Remove listener after receiving the answer
+            // Check if chunk matches any valid response
+            const isValid = validResponses.some(pattern => {
+                if (typeof pattern === 'string') {
+                    return chunk.toUpperCase() === pattern;
+                } else if (pattern instanceof RegExp) {
+                    return pattern.test(chunk);
+                }
+                return false;
+            });
+
+            if (isValid) {
+                resolve(chunk.toUpperCase());
+                llmProcess.stdout.off('data', onData);
             }
         };
 
@@ -209,64 +262,296 @@ const getAnswerFromLLM = (llmProcess, prompt, validResponses) => {
         llmProcess.stdout.on('data', onData);
         llmProcess.stderr.on('data', onError);
 
-        // Send the prompt to the LLM
         llmProcess.stdin.write(`${prompt}\n`);
     });
 };
 
-// Function to check if the question is already stored in the JSON and retrieve the correct answer
-async function findAnswerInJson(question) {
+// Function to Retrieve Stored Answer
+const findAnswerInJson = async (question) => {
     try {
         const fileContent = await fs.readFile(resultsFilePath, 'utf8');
         const data = JSON.parse(fileContent);
-
-        // Find the question in the JSON file
         const entry = data.find(item => item.question.toLowerCase() === question.toLowerCase());
-        if (entry) {
-            return entry.answer; // Return the stored correct answer
-        }
-        return null; // If no matching question is found
+        return entry ? entry.answer : null;
     } catch (err) {
         console.error('Error reading JSON file:', err);
         return null;
     }
-}
+};
 
-// Function to automatically click the correct answer
-async function clickCorrectAnswer(page, correctAnswer) {
-    try {
-        const choices = await page.$$('.choice'); // Get all answer choices
-        for (const choice of choices) {
-            const text = await page.evaluate(el => el.textContent.trim(), choice);
-            if (text.toLowerCase() === correctAnswer.toLowerCase()) {
-                await humanClick(page, choice); // Use human-like click
-                console.log(`Automatically clicked the correct answer: ${correctAnswer}`);
-                return;
+
+const clickCorrectAnswer = async (page, correctAnswer) => {
+    const maxAttempts = 3;
+    let attempts = 0;
+    
+    while (attempts < maxAttempts) {
+        try {
+            // Wait a bit before attempting to click
+            await randomDelay(2000, 3000);
+            
+            // Re-query for choices each attempt in case the DOM has updated
+            const choices = await page.$$('.choice');
+            
+            // Check if any choices exist
+            if (!choices.length) {
+                console.log("No choices found on attempt", attempts + 1);
+                attempts++;
+                continue;
+            }
+
+            for (const choice of choices) {
+                // Verify element is still attached to DOM
+                const isAttached = await page.evaluate(el => {
+                    return el && el.isConnected && 
+                           window.getComputedStyle(el).display !== 'none' &&
+                           window.getComputedStyle(el).visibility !== 'hidden';
+                }, choice);
+
+                if (!isAttached) {
+                    continue;
+                }
+
+                // Get the text content of the choice
+                const text = await page.evaluate(el => el.textContent.trim(), choice);
+                
+                if (text.toLowerCase() === correctAnswer.toLowerCase()) {
+                    // Additional check to ensure element is visible and clickable
+                    const box = await choice.boundingBox();
+                    if (!box) {
+                        console.log("Choice element has no bounding box. Skipping.");
+                        continue;
+                    }
+
+                    // Move mouse to element first
+                    await moveMouseToElement(page, choice);
+                    await randomDelay(800, 1000);
+
+                    // Try to click the element
+                    await choice.click({ delay: Math.floor(Math.random() * 100) + 50 });
+                    console.log(`Successfully clicked the correct answer: ${correctAnswer}`);
+                    return true;
+                }
+            }
+
+            console.log(`Could not find or click the correct answer: ${correctAnswer} on attempt ${attempts + 1}`);
+            attempts++;
+            
+            // If we've tried multiple times, try clicking using JavaScript directly
+            if (attempts === maxAttempts - 1) {
+                console.log("Attempting fallback click method...");
+                const clicked = await page.evaluate((answerText) => {
+                    const elements = Array.from(document.querySelectorAll('.choice'));
+                    const element = elements.find(el => 
+                        el.textContent.trim().toLowerCase() === answerText.toLowerCase());
+                    if (element) {
+                        element.click();
+                        return true;
+                    }
+                    return false;
+                }, correctAnswer);
+                
+                if (clicked) {
+                    console.log("Successfully clicked using fallback method");
+                    return true;
+                }
+            }
+
+        } catch (err) {
+            console.log(`Error during click attempt ${attempts + 1}:`, err.message);
+            attempts++;
+            
+            if (attempts === maxAttempts) {
+                console.error("Failed to click after maximum attempts");
+                return false;
             }
         }
-        console.log(`Could not find the correct answer: ${correctAnswer}`);
-    } catch (err) {
-        console.error('Error clicking the correct answer:', err);
     }
-}
+    
+    return false;
+};
 
-(async () => {
-    await initializeResultsFile(); // Initialize the JSON file if needed
 
-    // Start the LLM server
-    const llmProcess = startLLMServer();
-
-    // Wait for the LLM server to be ready
+// Enhanced Element Wait
+const safeWaitForSelector = async (selector, page, timeout = 30000) => {
     try {
-        console.log('Waiting for the LLM server to load...');
-        await waitForLLMReady(llmProcess);
-        console.log('LLM server is ready.');
+        await page.waitForSelector(selector, { timeout });
+        return true;
+    } catch (error) {
+        console.log(`Error: failed to find element matching selector "${selector}". Skipping.`);
+        return false;
+    }
+};
+
+// Question and Answer Extraction
+const extractQuestionAndAnswers = async (page) => {
+    const questionData = await page.evaluate(() => {
+        const questionElement = document.querySelector('#single-question');
+        let text = questionElement ? questionElement.textContent.replace(/\s+/g, ' ').trim() : null;
+        if (text) {
+            text = text.replace(/ Correct!$/, '').replace(/ Incorrect!$/, '');
+        }
+
+        const img = document.querySelector('#constellation > img[alt="constellation question"]');
+        const hasImage = img !== null;
+
+        return { text, hasImage };
+    });
+
+    let answers = [];
+    if (questionData.text) {
+        answers = await page.evaluate(() => {
+            const answerElements = Array.from(document.querySelectorAll('.choice'));
+            return answerElements.length
+                ? answerElements
+                      .map(el => el.textContent.replace(/\s+/g, ' ').trim())
+                      .filter(choice => {
+                          const normalized = choice.toLowerCase().replace(/’/g, "'");
+                          return normalized !== "i'm not sure";
+                      })
+                : [];
+        });
+    }
+
+    return { question: questionData.text, answers, hasImage: questionData.hasImage };
+};
+
+const extractHint = async (page) => {
+    return await page.evaluate(() => {
+        const hintDiv = document.querySelector('#word-hint > p > span');
+        return hintDiv ? hintDiv.textContent.trim() : null;
+    });
+};
+
+const extractFillBlankLength = async (page) => {
+    return await page.evaluate(() => {
+        const input = document.querySelector('#choice');
+        return input ? parseInt(input.getAttribute('maxlength'), 10) + 1 : null;
+    });
+};
+
+const extractFirstLetter = async (page) => {
+    return await page.evaluate(() => {
+        const firstLetterSpan = document.querySelector('#answer-box .first-letter');
+        return firstLetterSpan ? firstLetterSpan.textContent.trim() : null;
+    });
+};
+
+// Utility Function to Generate Random String
+const generateRandomString = (length) => {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+        result += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return result;
+};
+
+// Detect and Log Question Type
+const detectAndLogQuestionType = async (page) => {
+    const isPracticeQuestion = await page.$('#next-btn') !== null;
+    const isIKTElementPresent = await page.$('#ikt') !== null;
+
+    if (isPracticeQuestion || isIKTElementPresent) {
+        console.log("Practice Question Detected.");
+        console.log(`isIKTElementPresent: ${isIKTElementPresent}`);
+        return { questionType: 'practice', isIKTElementPresent };
+    }
+
+    const { question, answers, hasImage } = await extractQuestionAndAnswers(page);
+
+    if (question) {
+        const mcqRegex = /^Q:\s*Choose the word that fits best/i;
+
+        if (mcqRegex.test(question) && hasImage) {
+            const hint = await extractHint(page);
+            console.log(`Image Multiple Choice Question Detected: ${question}`);
+            if (hint) console.log(`Hint: ${hint}`);
+            console.log(`Answer Choices: ${answers.join(' | ')}`);
+            return { questionType: 'mcq_image', hint };
+        }
+
+        const isFillInTheBlank = await page.$('#answer-box') !== null;
+        if (isFillInTheBlank) {
+            const hint = await extractHint(page);
+            const wordLength = await extractFillBlankLength(page);
+            const firstLetter = await extractFirstLetter(page);
+
+            console.log(`Fill-in-the-Blank Question Detected: ${question}`);
+            if (hint) console.log(`Hint: ${hint}`);
+            if (wordLength !== null) console.log(`Word Length: ${wordLength}`);
+            else console.log("Word Length: Not Available");
+            if (firstLetter) console.log(`First Letter: ${firstLetter}`);
+            else console.log("First Letter: Not Available");
+
+            return { questionType: 'fill_in_the_blank', hint, wordLength, firstLetter };
+        }
+
+        // **Integrated Multiple Choice Handling from Old Code**
+        const hint = await extractHint(page);
+        console.log(`Regular Multiple Choice Question Detected: ${question}`);
+        if (hint) console.log(`Hint: ${hint}`);
+        console.log(`Answer Choices: ${answers.join(' | ')}`);
+        return { questionType: 'mcq', hint };
+    } else {
+        console.log("Unable to determine the type of the current question.");
+        return { questionType: 'unknown', hint: null };
+    }
+};
+
+const tryClick15MinButton = async (page) => {
+    const buttonSelector = '#\\31 5_min_'; // Escaped selector for the "15 min" button
+
+    try {
+        // Wait for the button to appear (if it does) and be clickable
+        const buttonAppeared = await safeWaitForSelector(buttonSelector, page, 10000); // Wait max 10s for button
+        if (buttonAppeared) {
+            const buttonElement = await page.$(buttonSelector);
+            if (buttonElement) {
+                console.log("Found the '15 min' button. Attempting to click...");
+                await moveMouseToElement(page, buttonElement); // Move the mouse to the button
+                await humanClick(page, buttonElement); // Perform human-like click
+                console.log("'15 min' button clicked successfully.");
+            }
+        } else {
+            console.log("'15 min' button did not appear. Skipping this step.");
+        }
+    } catch (err) {
+        console.error("Error while trying to click the '15 min' button:", err);
+    }
+};
+
+// Main Execution Function
+(async () => {
+    await initializeResultsFile();
+
+    // Start LLM Servers
+    const mainLLMProcess = startLLMServer('main');
+    
+
+    // Wait for LLM Servers to be Ready
+    try {
+        console.log('Waiting for the Main LLM server to load...');
+        await waitForLLMReady(mainLLMProcess);
+        console.log('Main LLM server is ready.');
     } catch (err) {
         console.error('Error waiting for LLM server readiness:', err);
-        llmProcess.kill();
+        mainLLMProcess.kill();
+        fillBlankLLMProcess.kill();
+        process.exit(1);
+    }
+    const fillBlankLLMProcess = startLLMServer('fillBlank');
+    try {
+        console.log('Waiting for the Fill-in-the-Blank LLM server to load...');
+        await waitForLLMReady(fillBlankLLMProcess);
+        console.log('Fill-in-the-Blank LLM server is ready.');
+    } catch (err) {
+        console.error('Error waiting for LLM server readiness:', err);
+        mainLLMProcess.kill();
+        fillBlankLLMProcess.kill();
         process.exit(1);
     }
 
+    // Launch Puppeteer Browser
     console.log("Launching the browser...");
     const browser = await puppeteer.launch({
         headless: false,
@@ -276,17 +561,22 @@ async function clickCorrectAnswer(page, correctAnswer) {
     const page = await browser.newPage();
     console.log("Browser launched and new page opened.");
 
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
+        'AppleWebKit/537.36 (KHTML, like Gecko) ' +
+        'Chrome/91.0.4472.124 Safari/537.36');
     console.log("User agent set.");
 
+    // Navigate to Login Page
     console.log("Navigating to the login page...");
     await page.goto('https://membean.com/login', { waitUntil: 'domcontentloaded' });
     console.log("Login page loaded.");
 
+    // Fill in Login Form
     console.log("Filling in the login form...");
-    await humanType(page, '#username', 'INSERT USERNAME');
-    await humanType(page, '#password', 'INSERT PASSWORD');
+    await humanType(page, '#username', username);
+    await humanType(page, '#password', password);
 
+    // Click Login Button
     console.log("Clicking the login button...");
     const loginButton = await page.$('#login > div:nth-child(4) > button');
     if (loginButton) {
@@ -296,10 +586,12 @@ async function clickCorrectAnswer(page, correctAnswer) {
     } else {
         console.error("Login button not found.");
         await browser.close();
-        llmProcess.kill();
+        mainLLMProcess.kill();
+        fillBlankLLMProcess.kill();
         process.exit(1);
     }
 
+    // Click 'Start Training' Button
     console.log("Waiting for the 'Start Training' button to become clickable...");
     await page.waitForFunction(
         () => document.querySelector('#startTrainingBtn') && !document.querySelector('#startTrainingBtn').disabled,
@@ -307,9 +599,7 @@ async function clickCorrectAnswer(page, correctAnswer) {
     );
     console.log("'Start Training' button is clickable.");
 
-    console.log("Waiting for a random delay before clicking the 'Start Training' button...");
-    await randomDelay(1000, 3000); // Random delay between 1-3 seconds
-
+    await randomDelay(2000, 4000);
     console.log("Clicking the 'Start Training' button...");
     const startTrainingButton = await page.$('#startTrainingBtn');
     if (startTrainingButton) {
@@ -317,278 +607,382 @@ async function clickCorrectAnswer(page, correctAnswer) {
     } else {
         console.error("'Start Training' button not found.");
         await browser.close();
-        llmProcess.kill();
+        mainLLMProcess.kill();
+        fillBlankLLMProcess.kill();
         process.exit(1);
     }
 
+    console.log("Waiting for the 'Start Training' button to become clickable...");
+    await tryClick15MinButton(page);
+
+    
     console.log("Waiting for the first question to load...");
 
-    // Enhanced error handling
-    async function safeWaitForSelector(selector, page, timeout = 30000) {
+    // Polling Mechanism Variables
+    let lastIsIKTElementPresent = null;
+    let lastPracticeWordForm = null;
+    let lastQuestionType = null;
+    const processedImageQuestions = new Set();
+    const processedFillInTheBlankQuestions = new Set();
+    const processedQuestions = new Set();
+    const processedMCQQuestions = new Set();
+    let isProcessing = false;
+
+    // Handle Different Question Types
+    const handleQuestion = async () => {
+        if (isProcessing) return;
+        isProcessing = true;
+    
         try {
-            await page.waitForSelector(selector, { timeout });
-            return true;
-        } catch (error) {
-            console.log(`Error: failed to find element matching selector "${selector}". Skipping.`);
-            return false;
-        }
-    }
-
-    if (await safeWaitForSelector('#single-question', page)) {
-        console.log("First question loaded.");
-
-        // Function to extract the question and answers based on Tampermonkey logic
-        const extractQuestionAndAnswers = async () => {
-            const question = await page.evaluate(() => {
-                const questionElement = document.querySelector('#single-question');
-                let text = questionElement ? questionElement.textContent.replace(/\s+/g, ' ').trim() : null;
-                if (text) {
-                    // Remove 'Correct!' or 'Incorrect!' suffix if present
-                    text = text.replace(/ Correct!$/, '').replace(/ Incorrect!$/, '');
-                }
-                return text;
-            });
-
-            const answers = await page.evaluate(() => {
-                const answerElements = Array.from(document.querySelectorAll('.choice'));
-                return answerElements.length ? answerElements.map(el => el.textContent.replace(/\s+/g, ' ').trim()) : [];
-            });
-
-            return { question, answers };
-        };
-
-        // Function to detect the correct answer by checking for the 'correct' class
-        const detectCorrectAnswer = async (question, choices) => {
-            const correctAnswer = await page.evaluate(() => {
-                const correctElement = document.querySelector('.choice.correct');
-                return correctElement ? correctElement.textContent.replace(/\s+/g, ' ').trim() : null;
-            });
-            if (correctAnswer) {
-                console.log("Correct Answer Detected: ", correctAnswer);
-                // Enqueue the save operation instead of directly calling saveResult
-                enqueueSave(question, choices, correctAnswer);
+            const detectionResult = await detectAndLogQuestionType(page);
+            let { questionType, isIKTElementPresent, hint, wordLength, firstLetter } = detectionResult;
+    
+    
+            // Handle the current question based on its type
+            switch (questionType) {
+                case 'practice':
+                    await handlePracticeQuestion(page, isIKTElementPresent);
+                    lastQuestionType = 'practice';
+                    break;
+                case 'fill_in_the_blank':
+                    await handleFillInTheBlankQuestion(page, hint, wordLength, firstLetter, lastPracticeWordForm, lastIsIKTElementPresent);
+                    lastQuestionType = 'fill_in_the_blank';
+                    break;
+                case 'mcq_image':
+                    await handleMCQImageQuestion(page);
+                    lastQuestionType = 'mcq';
+                    break;
+                case 'mcq':
+                    await handleMCQQuestion(page, hint, processedQuestions, mainLLMProcess);
+                    lastQuestionType = 'mcq';
+                    break;
+                case 'reload':
+                    await handleReloadQuestion(page);
+                    break;
+                case 'unknown':
+                default:
+                    console.log("Encountered an unknown question type. Skipping.");
+                    isIKTElementPresent = lastIsIKTElementPresent // Keep the last value
+                    break;
             }
-        };
 
-        // Function to detect if it's a practice question
-        const isPracticeQuestion = async () => {
-            return await page.$('#next-btn') !== null;
-        };
-
-        // Function to detect if it's a fill-in-the-blank question
-        const isFillInTheBlank = async () => {
-            return await page.$('#answer-box') !== null;
-        };
-
-        // Variable to store the last practice question's word form
-        let lastPracticeWordForm = null;
-
-        // Detect the initial question and answers
-        let { question: previousQuestion, answers: previousAnswers } = await extractQuestionAndAnswers();
-        if (previousQuestion && previousAnswers.length) {
-            console.log("Initial Question: ", previousQuestion);
-            console.log("Answers: ", previousAnswers);
-        } else {
-            console.log("Failed to extract the initial question or answers.");
+            lastIsIKTElementPresent = isIKTElementPresent
+    
+        } catch (err) {
+            console.error("Error in handling question:", err);
+        } finally {
+            isProcessing = false;
         }
+    };
+    
 
-        // Flag to prevent overlapping processing
-        let isProcessing = false;
+    // Handle Practice Question
+    const handlePracticeQuestion = async (page, isIKTElementPresent) => {
+        console.log("Handling practice question...");
+        await randomDelay(4500, 5500);
+    
+        const choices = await page.$$('.choice');
+        for (const choice of choices) {
+            if (await choice.evaluate(el => el.isConnected)) {
+                await humanClick(page, choice);
+                console.log("Clicked on a choice.");
+                await randomDelay(400, 900);
+            } else {
+                console.log("Choice element is detached from the document. Skipping click.");
+            }
+        }
+    
+        // Corrected Selector: 'h1.wordform'
+        const wordForm = await page.evaluate(() => {
+            const header = document.querySelector('h1.wordform');
+            return header ? header.textContent.trim() : null;
+        });
 
-        // Set to track all processed questions
-        const processedQuestions = new Set();
+        console.log(`Word Form: ${wordForm}`);
+        lastPracticeWordForm = wordForm;
 
-        // Function to check if the question has changed (polling mechanism)
-        const checkForNewQuestion = async () => {
-            if (isProcessing) return; // Prevent overlapping executions
-            isProcessing = true;
+    
+        await randomDelay(1500, 2500);
+    
+        const nextBtn = await page.$('#next-btn');
+        if (nextBtn) {
+            await humanClick(page, nextBtn);
+            await randomDelay(2000, 3000);
+            console.log("Clicked 'Next' to proceed to the following question.");
+        } else {
+            console.log("Next button not found. Skipping click.");
+        }
+    
+        // Update lastIsIKTElementPresent based on the current question
+        lastIsIKTElementPresent = isIKTElementPresent;
+    };
+    
+    
+    
 
-            try {
-                // First, check if it's a fill-in-the-blank question
-                const fillInTheBlank = await isFillInTheBlank();
-                if (fillInTheBlank) {
-                    const wordForm = await page.evaluate(() => {
-                        const header = document.querySelector('h1.wordform');
-                        return header ? header.textContent.trim() : null;
-                    });
-                    console.log(`Fill-in-the-Blank Question Detected. Word Form: ${wordForm}`);
-
-                    // If the last question was a practice question, use its word form
-                    if (lastPracticeWordForm) {
-                        // Fill in the blank with the last practice word form
+    const handleFillInTheBlankQuestion = async (
+        page,
+        hint,
+        wordLength,
+        firstLetter,
+        lastPracticeWordForm,
+        lastIsIKTElementPresent
+    ) => {
+        // Extract the current question text to uniquely identify the FIB question
+        const currentQuestionText = await page.evaluate(() => {
+            const questionElement = document.querySelector('#single-question');
+            return questionElement
+                ? questionElement.textContent.replace(/\s+/g, ' ').trim()
+                : null;
+        });
+    
+        if (!currentQuestionText) {
+            console.log("Unable to extract fill-in-the-blank question text. Skipping processing.");
+            return;
+        }
+    
+    
+        // Proceed with handling the FIB question
+        if (lastQuestionType === 'practice' && lastIsIKTElementPresent) {
+            console.log("Using the last practice word form to fill in the blank.");
+            const answerBox = await page.$('#choice');
+            if (answerBox) {
+                await moveMouseToElement(page, answerBox);
+                await randomDelay(500, 1000);
+                await page.type('#choice', lastPracticeWordForm, { delay: Math.floor(Math.random() * 100) + 50 });
+                
+                console.log(`Filled in the blank with the last practice word form: ${lastPracticeWordForm}`);
+            } else {
+                console.log("Answer box not found for fill-in-the-blank question.");
+            }
+        } else {
+            if (wordLength && hint) { // Removed firstLetter requirement
+                console.log("Using Fill-in-the-Blank LLM to guess the word...");
+                try {
+                    const guessedWord = await getAnswerFromLLM(
+                        fillBlankLLMProcess,
+                        `${wordLength},${firstLetter},${hint}`,
+                        ['UNKNOWN', /^[a-zA-Z]+$/]
+                    );
+    
+                    console.log(`Fill-in-the-Blank LLM Guessed Word: ${guessedWord}`);
+    
+                    if (guessedWord && guessedWord.toLowerCase() !== 'unknown') {
+                        // Remove the first character (already provided)
+                        const processedWord = guessedWord.substring(1);
+                        console.log(`Processed Word (without first letter): ${processedWord}`);
+    
                         const answerBox = await page.$('#choice');
                         if (answerBox) {
                             await moveMouseToElement(page, answerBox);
-                            await randomDelay(500, 1000); // Delay before typing
-                            await page.type('#choice', lastPracticeWordForm, { delay: Math.floor(Math.random() * 100) + 50 }); // Human-like typing
-                            console.log(`Filled in the blank with: ${lastPracticeWordForm}`);
+                            await randomDelay(500, 1000);
+                            await page.type('#choice', processedWord, { delay: Math.floor(Math.random() * 100) + 50 });
+                            console.log(`Filled in the blank with LLM guessed word: ${processedWord}`);
+                        } else {
+                            console.log("Answer box not found for fill-in-the-blank question.");
+                        }
+                    } else {
+                        console.log("LLM did not provide a valid word. Filling with random characters.");
+                        const remainingLength = wordLength - 1;
+                        const randomChars = generateRandomString(remainingLength);
+                        const answerBox = await page.$('#choice');
+                        if (answerBox) {
+                            await moveMouseToElement(page, answerBox);
+                            await randomDelay(500, 1000);
+                            await page.type('#choice', randomChars, { delay: Math.floor(Math.random() * 100) + 50 });
+                            console.log(`Filled in the blank with random characters: ${randomChars}`);
                         } else {
                             console.log("Answer box not found for fill-in-the-blank question.");
                         }
                     }
-
-                    return; // Do not proceed further for fill-in-the-blank questions
-                }
-
-                // Next, check if it's a practice question
-                const practice = await isPracticeQuestion();
-                if (practice) {
-                    console.log("Practice Question Detected. Skipping save and moving to the next question.");
-
-                    try {
-                        // Wait for a random delay before interacting
-                        await randomDelay(1500, 2500);
-
-                        // Click on the specified choice elements
-                        const choices = await page.$$('.choice'); // Select all elements with class 'choice'
-                        for (const choice of choices) {
-                            // Check if the element is still attached to the DOM
-                            const isConnected = await choice.evaluate(el => el.isConnected);
-                            if (isConnected) {
-                                await humanClick(page, choice);
-                                console.log("Clicked on a choice.");
-                                // Wait for a random delay between clicks
-                                await randomDelay(800, 1500);
-                            } else {
-                                console.log("Choice element is detached from the document. Skipping click.");
-                            }
-                        }
-
-                        // Log the first header <h1 class="wordform">exuberance</h1>
-                        const wordForm = await page.evaluate(() => {
-                            const header = document.querySelector('h1.wordform');
-                            return header ? header.textContent.trim() : null;
-                        });
-                        if (wordForm) {
-                            console.log(`Word Form: ${wordForm}`);
-                            lastPracticeWordForm = wordForm; // Store for future fill-in-the-blank questions
+                } catch (err) {
+                    console.error('Error communicating with Fill-in-the-Blank LLM:', err);
+                    if (wordLength) {
+                        const remainingLength = wordLength - 1;
+                        const randomChars = generateRandomString(remainingLength);
+                        const answerBox = await page.$('#choice');
+                        if (answerBox) {
+                            await moveMouseToElement(page, answerBox);
+                            await randomDelay(500, 1000);
+                            await page.type('#choice', randomChars, { delay: Math.floor(Math.random() * 100) + 50 });
+                            console.log(`Filled in the blank with random characters due to error: ${randomChars}`);
                         } else {
-                            console.log("Word form not found in practice question.");
-                        }
-
-                        // Wait for a random delay before clicking 'Next'
-                        await randomDelay(1500, 2500);
-
-                        // Click the "Next" button to proceed
-                        const nextBtn = await page.$('#next-btn');
-                        if (nextBtn) {
-                            await humanClick(page, nextBtn);
-                            console.log("Clicked 'Next' to proceed to the following question.");
-                        } else {
-                            console.log("Next button not found. Skipping click.");
-                        }
-                    } catch (err) {
-                        console.error("Error handling practice question:", err);
-                    }
-                    return; // Skip further processing for practice questions
-                }
-
-                // Proceed to extract question and answers if not a practice or fill-in-the-blank question
-                const { question: currentQuestion, answers: currentAnswers } = await extractQuestionAndAnswers();
-                if (currentQuestion && !processedQuestions.has(currentQuestion.toLowerCase())) {
-                    console.log("New Question Detected: ", currentQuestion);
-                    console.log("Answers: ", currentAnswers);
-                    previousQuestion = currentQuestion;
-                    previousAnswers = currentAnswers;
-                } else {
-                    // Question has already been processed
-                    return;
-                }
-
-                // Detect and log the correct answer for the current question
-                await detectCorrectAnswer(previousQuestion, previousAnswers);
-
-                // Check if the question is already in the JSON
-                const storedAnswer = await findAnswerInJson(previousQuestion);
-
-                if (storedAnswer) {
-                    // Automatically answer the question by clicking the stored correct answer
-                    await clickCorrectAnswer(page, storedAnswer);
-                } else {
-                    // If the question is not in the JSON, generate an answer using LLM
-
-                    // **Start of Changes**
-                    // Check if the current question has already been sent to the LLM
-                    const normalizedQuestion = currentQuestion.toLowerCase();
-                    if (processedQuestions.has(normalizedQuestion)) {
-                        console.log('This question has already been processed. Skipping LLM request.');
-                    } else {
-                        console.log("Answer not found in JSON. Using LLM to guess the answer.");
-
-                        // Add the question to the processed set to prevent future duplicate processing
-                        processedQuestions.add(normalizedQuestion);
-
-                        // Wait for a random delay before generating the answer
-                        await randomDelay(2000, 5000);
-
-                        // Construct the prompt similar to test_llm.js
-                        const numChoices = currentAnswers.length;
-                        const validLetters = ['A', 'B', 'C', 'D', 'E'].slice(0, numChoices);
-                        const lettersInPrompt = validLetters.join(', ');
-
-                        const options = currentAnswers.map((choice, idx) => `${String.fromCharCode(65 + idx)}) ${choice}`).join(', ');
-                        console.log(`Answer options: ${options}`);
-                        const prompt = `Question: ${currentQuestion} | Answer options: ${options} | Answer (respond with only the letter ${lettersInPrompt} or 'Unknown'):`;
-
-                        console.log(`Sending to LLM: ${prompt}`);
-
-                        try {
-                            const guessedAnswer = await getAnswerFromLLM(llmProcess, prompt, [...validLetters, 'UNKNOWN']);
-                            console.log(`LLM Guessed Answer: ${guessedAnswer}`);
-
-                            if (guessedAnswer && guessedAnswer !== 'UNKNOWN') {
-                                // Validate the guessed answer
-                                if (validLetters.includes(guessedAnswer.toUpperCase())) {
-                                    // Find and click the guessed answer
-                                    const answerIndex = validLetters.indexOf(guessedAnswer.toUpperCase());
-                                    if (answerIndex !== -1 && answerIndex < currentAnswers.length) {
-                                        const choiceElements = await page.$$('.choice');
-                                        if (choiceElements[answerIndex]) {
-                                            await humanClick(page, choiceElements[answerIndex]);
-                                            console.log(`Clicked on the guessed answer: ${guessedAnswer.toUpperCase()}`);
-                                        } else {
-                                            console.log(`Guessed answer index ${answerIndex} is out of bounds.`);
-                                        }
-                                    } else {
-                                        console.log(`Guessed answer "${guessedAnswer}" is invalid or out of range.`);
-                                    }
-                                } else {
-                                    console.log(`Guessed answer "${guessedAnswer}" is not among valid options (${lettersInPrompt}).`);
-                                }
-                            } else {
-                                console.log("LLM did not provide a valid answer.");
-                            }
-                        } catch (err) {
-                            console.error('Error communicating with LLM:', err);
+                            console.log("Answer box not found for fill-in-the-blank question.");
                         }
                     }
-                    // **End of Changes**
                 }
-            } catch (err) {
-                console.error("Error in polling mechanism:", err);
-            } finally {
-                isProcessing = false;
+            } else {
+                console.log("Insufficient data to use Fill-in-the-Blank LLM. Skipping.");
             }
-        };
+        }
+    
+        // After handling the FIB question, mark it as processed
+        processedFillInTheBlankQuestions.add(currentQuestionText);
+        console.log("Marked the fill-in-the-blank question as processed to prevent duplicate handling.");
+    };
+    
+    
+    
 
-        // Poll for new questions every 2 seconds with slight randomization to mimic human behavior
-        const pollingInterval = 2000; // Base interval in milliseconds
-        const jitter = 500; // Maximum additional milliseconds
+    // Handle Multiple Choice Question with Image
+    const handleMCQImageQuestion = async (page) => {
+        console.log("Handling multiple choice question with image.");
+        
+        // Extract the current question text to use as a unique identifier
+        const currentQuestionText = await page.evaluate(() => {
+            const questionElement = document.querySelector('#single-question');
+            return questionElement ? questionElement.textContent.replace(/\s+/g, ' ').trim() : null;
+        });
+    
+        if (!currentQuestionText) {
+            console.log("Unable to extract question text. Skipping image MCQ handling.");
+            return;
+        }
+    
+        // Check if this image question has already been processed
+        if (processedImageQuestions.has(currentQuestionText)) {
+            console.log("This image-based question has already been handled. Skipping to prevent multiple clicks.");
+            return;
+        }
+    
+        // Proceed to handle the image MCQ
+        const mcqImageChoices = await page.$$('.choice');
+        if (mcqImageChoices.length > 0) {
+            await randomDelay(5000, 8000);
+            const randomIndex = Math.floor(Math.random() * mcqImageChoices.length);
+            await humanClick(page, mcqImageChoices[randomIndex]);
+            console.log(`Answered multiple choice question with image randomly: Choice ${randomIndex + 1}`);
+            
+            // Add the question to the processed set
+            processedImageQuestions.add(currentQuestionText);
+        } else {
+            console.log("No choices found for image MCQ. Skipping.");
+        }
+    };
+    
+
+    // Handle Regular Multiple Choice Question
+    const handleMCQQuestion = async (page, hint, processedMCQQuestions, mainLLMProcess) => {
+        const { question: currentQuestion, answers: currentAnswers } = await extractQuestionAndAnswers(page);
+        
+        if (!currentQuestion) {
+            console.log("Failed to extract the current question or answers.");
+            return;
+        }
+
+        const questionKey = currentQuestion.toLowerCase();
+
+        // Check if the question has already been processed or exists in JSON
+        const storedAnswer = await findAnswerInJson(currentQuestion);
+        if (storedAnswer) {
+            console.log(`This question has already been processed. Skipping LLM request.`);
+            await clickCorrectAnswer(page, storedAnswer);
+            return;
+        }
+
+        // Check if the question has been processed in this session
+        if (processedMCQQuestions.has(questionKey)) {
+            console.log(`This multiple-choice question has already been processed. Skipping.`);
+            return;
+        }
+
+        // Mark the question as being processed
+        processedMCQQuestions.add(questionKey);
+
+        console.log("New Multiple-Choice Question Detected:", currentQuestion);
+        console.log("Answer Choices:", currentAnswers);
+
+        // Attempt to detect the correct answer from the page (if possible)
+        const correctAnswer = await page.evaluate(() => {
+            const correctElement = document.querySelector('.choice.correct');
+            return correctElement ? correctElement.textContent.replace(/\s+/g, ' ').trim() : null;
+        });
+
+        if (correctAnswer) {
+            console.log("Correct Answer Detected:", correctAnswer);
+            enqueueSave(currentQuestion, currentAnswers, correctAnswer);
+            // Click the correct answer
+            await clickCorrectAnswer(page, correctAnswer);
+            // Remove from processedMCQQuestions as it's handled
+            processedMCQQuestions.delete(questionKey);
+            return;
+        }
+
+        // If correct answer isn't directly available, proceed to use LLM
+        console.log("Answer not found in JSON. Using LLM to guess the answer.");
+        await randomDelay(2000, 5000);
+
+        const numChoices = currentAnswers.length;
+        const validLetters = ['A', 'B', 'C', 'D', 'E'].slice(0, numChoices);
+        const lettersInPrompt = validLetters.join(', ');
+
+        const options = currentAnswers.map((choice, idx) => `${String.fromCharCode(65 + idx)}) ${choice}`).join(', ');
+        const prompt = `Question: ${currentQuestion} | Answer options: ${options} | Answer (respond with only the letter ${lettersInPrompt} or 'Unknown'):`;
+        console.log(`Sending to LLM`);
+
+        try {
+            const guessedAnswer = await getAnswerFromLLM(mainLLMProcess, prompt, [...validLetters, 'UNKNOWN']);
+            console.log(`Main LLM Guessed Answer: ${guessedAnswer}`);
+
+            if (guessedAnswer && guessedAnswer !== 'UNKNOWN') {
+                if (validLetters.includes(guessedAnswer.toUpperCase())) {
+                    const answerIndex = validLetters.indexOf(guessedAnswer.toUpperCase());
+                    if (answerIndex !== -1 && answerIndex < currentAnswers.length) {
+                        const choiceElements = await page.$$('.choice');
+                        if (choiceElements[answerIndex]) {
+                            await humanClick(page, choiceElements[answerIndex]);
+                            console.log(`Clicked on the guessed answer: ${guessedAnswer.toUpperCase()}`);
+                            // Enqueue the answer to save it
+                            const correctChoice = currentAnswers[answerIndex];
+                            enqueueSave(currentQuestion, currentAnswers, correctChoice);
+                        } else {
+                            console.log(`Guessed answer index ${answerIndex} is out of bounds.`);
+                        }
+                    } else {
+                        console.log(`Guessed answer "${guessedAnswer}" is invalid or out of range.`);
+                    }
+                } else {
+                    console.log(`Guessed answer "${guessedAnswer}" is not among valid options (${lettersInPrompt}).`);
+                }
+            } else {
+                console.log("Main LLM did not provide a valid answer.");
+            }
+        } catch (err) {
+            console.error('Error communicating with Main LLM:', err);
+        } finally {
+            // Remove the question from processedMCQQuestions regardless of outcome to allow retries if needed
+            processedMCQQuestions.delete(questionKey);
+        }
+    };
+
+
+
+    // Handle Reload Question
+    const handleReloadQuestion = async (page) => {
+        console.log("Reloading the question due to previous error.");
+        // Implement any specific reload logic if necessary
+    };
+
+    // Start Handling Questions
+    if (await safeWaitForSelector('#single-question', page) || await safeWaitForSelector('#next-btn', page)) {
+        console.log("First question element detected.");
+        await handleQuestion();
+        await randomDelay(1000, 2000);
         console.log("Polling for new questions...");
-        setInterval(checkForNewQuestion, pollingInterval + Math.floor(Math.random() * jitter)); // Polling every 2-2.5 seconds
+        setInterval(handleQuestion, 2000 + Math.floor(Math.random() * 500)); // Poll every 2-2.5 seconds
     } else {
         console.log("Could not find the first question element. Exiting.");
     }
 
-    // Graceful shutdown on Ctrl+C
+    // Graceful Shutdown
     process.on('SIGINT', async () => {
         console.log('\nGracefully shutting down...');
-        // Wait for the save queue to be processed
         while (saveQueue.length > 0 || isSaving) {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
         await browser.close();
-        llmProcess.kill(); // Terminate the LLM server
+        mainLLMProcess.kill();
+        fillBlankLLMProcess.kill();
         process.exit(0);
     });
 })();
