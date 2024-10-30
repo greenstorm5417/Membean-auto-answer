@@ -2,7 +2,11 @@ const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const fs = require('fs').promises;
 const path = require('path');
-const { spawn } = require('child_process');
+const OpenAI = require("openai");
+require('dotenv').config();
+
+// Configure OpenAI
+const openai = new OpenAI({});
 
 // Apply the stealth plugin to Puppeteer
 puppeteer.use(StealthPlugin());
@@ -13,14 +17,19 @@ const resultsFilePath = path.join(__dirname, 'results.json');
 
 let currentMousePosition = { x: 0, y: 0 };
 
-const username = 'your email'
-const password = 'your password'
+const username = 'INPUT USERNAME'
+const password = 'INPUT PASSWORD'
 
+const sessionMultiplier = 1 + Math.random() * (1.233333 - 1);
+console.log(`Session multiplier: ${sessionMultiplier}`);
 
 // Helper Functions
 const randomDelay = (min = 500, max = 1500) => 
-    new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * (max - min + 1)) + min));
-
+    new Promise(resolve => {
+        const baseDelay = Math.floor(Math.random() * (max - min + 1)) + min;
+        const adjustedDelay = Math.floor(baseDelay * sessionMultiplier);
+        setTimeout(resolve, adjustedDelay);
+    });
 
 const generateMousePath = (startX, startY, endX, endY) => {
     const path = [];
@@ -45,6 +54,24 @@ const generateMousePath = (startX, startY, endX, endY) => {
     return path;
 };
 
+const generateDistractedMousePath = (startX, startY, endX, endY) => {
+    const path = [];
+    const steps = Math.max(Math.floor(Math.hypot(endX - startX, endY - startY) / 10), 10);
+
+    for (let i = 1; i <= steps; i++) {
+        let x = startX + (endX - startX) * (i / steps);
+        let y = startY + (endY - startY) * (i / steps);
+
+        // Random zig-zag or pause 20% of the time
+        if (Math.random() < 0.2) {
+            x += Math.random() * 10 - 5; // Zig-zag
+            y += Math.random() * 10 - 5;
+        }
+
+        path.push({ x: Math.round(x), y: Math.round(y) });
+    }
+    return path;
+};
 
 const moveMouseToElement = async (page, element) => {
     const box = await element.boundingBox();
@@ -53,15 +80,17 @@ const moveMouseToElement = async (page, element) => {
         const deviation = 5; // pixels
         const targetX = box.x + box.width / 2 + (Math.random() * deviation * 2 - deviation);
         const targetY = box.y + box.height / 2 + (Math.random() * deviation * 2 - deviation);
-        
-        // Generate path from currentMousePosition to targetX, targetY
-        const path = generateMousePath(currentMousePosition.x, currentMousePosition.y, targetX, targetY);
-        
+
+        // 10-20% chance of using the distracted mouse path
+        const path = (Math.random() < 0.2)
+            ? generateDistractedMousePath(currentMousePosition.x, currentMousePosition.y, targetX, targetY)
+            : generateMousePath(currentMousePosition.x, currentMousePosition.y, targetX, targetY);
+
         for (const point of path) {
             await page.mouse.move(point.x, point.y);
             await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 30) + 20)); // 20-50ms delay between moves
         }
-        
+
         // Update the current mouse position
         currentMousePosition = { x: targetX, y: targetY };
     }
@@ -69,7 +98,7 @@ const moveMouseToElement = async (page, element) => {
 
 const humanClick = async (page, element) => {
     await moveMouseToElement(page, element);
-    await randomDelay(100, 300);
+    await randomDelay(100, 500);
     try {
         await element.click();
         console.log("Human-like click performed.");
@@ -78,26 +107,51 @@ const humanClick = async (page, element) => {
     }
 };
 
-
 const humanType = async (page, selector, text) => {
     const element = await page.$(selector);
     if (element) {
         await moveMouseToElement(page, element);
-        await randomDelay(300, 500);
-        
+        await randomDelay(300, 700);
+
+        let typedText = '';
+
+        // Available characters for random mistake typing
+        const randomChars = 'abcdefghijklmnopqrstuvwxyz';
+
         for (const char of text) {
+            // 10-20% chance to make a mistake by typing a wrong character before deleting it
+            if (Math.random() < 0.05 && typedText.length > 0) {
+                // Type a random wrong character
+                const wrongChar = randomChars.charAt(Math.floor(Math.random() * randomChars.length));
+                await page.type(selector, wrongChar, { delay: Math.floor(Math.random() * 200) + 100 });
+                typedText += wrongChar;
+
+                // Pause briefly
+                await randomDelay(300, 700);
+
+                // Press backspace to delete the wrong character
+                await page.keyboard.press('Backspace');
+                typedText = typedText.slice(0, -1); // Remove last (wrong) char from the typed text
+
+                // Pause again before continuing
+                await randomDelay(300, 700);
+            }
+
+            // Type the correct character
             await page.type(selector, char, { delay: Math.floor(Math.random() * 200) + 100 });
-            // Introduce a pause after typing a word
-            if (char === ' ' && Math.random() < 0.3) { // 30% chance to pause
-                await randomDelay(500, 1500);
+            typedText += char;
+
+            // Introduce a pause after typing a word or a 30% chance to pause after any space character
+            if (char === ' ' && Math.random() < 0.3) {
+                await randomDelay(500, 2000);
             }
         }
-        console.log("Human-like typing performed.");
+
+        console.log("Human-like typing with occasional mistakes performed.");
     }
 };
 
 
-// Initialize the results.json file if it doesn't exist
 const initializeResultsFile = async () => {
     try {
         await fs.access(resultsFilePath);
@@ -183,90 +237,46 @@ const saveResult = async (question, choices, answer, firstLetter) => {
     }
 };
 
-// LLM Server Management
-const startLLMServer = (serverType) => {
-    const serverFiles = {
-        main: 'llm_server.py',
-        fillBlank: 'llm_server_fill_blank.py'
-    };
 
-    const llmPath = path.join(__dirname,  serverFiles[serverType]);
-    const llmProcess = spawn('python', [llmPath]);
+const getAnswerFromLLM = async (prompt, validResponses, options = {}) => {
+    try {
+        const response = await openai.chat.completions.create({
+            model: options.model || 'gpt-4',
+            messages: [
+                { role: 'system', content: options.systemPrompt || 'You are a helpful assistant.' },
+                { role: 'user', content: prompt },
+            ],
+            max_tokens: options.max_tokens || 150,
+            temperature: options.temperature || 0.7,
+            n: 1,
+            stop: options.stop || null,
+        });
 
-    llmProcess.stdout.on('data', (data) => {
-        const message = data.toString().trim();
-        console.log(`${serverType === 'main' ? 'Main' : 'FillBlank'} LLM: ${message}`);
-    });
+        const answer = response.choices[0].message.content.trim();
 
-    llmProcess.stderr.on('data', (data) => {
-        console.error(`${serverType === 'main' ? 'Main' : 'FillBlank'} LLM Error: ${data.toString().trim()}`);
-    });
-
-    llmProcess.on('close', (code) => {
-        console.log(`${serverType === 'main' ? 'Main' : 'FillBlank'} LLM server exited with code ${code}`);
-    });
-
-    return llmProcess;
-};
-
-const waitForLLMReady = (llmProcess, readinessMessage = 'READY') => {
-    return new Promise((resolve, reject) => {
-        const onData = (data) => {
-            const message = data.toString().trim();
-            if (message === readinessMessage) {
-                resolve();
-                llmProcess.stdout.off('data', onData);
+        // Validate the response against validResponses
+        const isValid = validResponses.some(pattern => {
+            if (typeof pattern === 'string') {
+                return answer.toUpperCase() === pattern;
+            } else if (pattern instanceof RegExp) {
+                return pattern.test(answer);
             }
-        };
+            return false;
+        });
 
-        const onError = (err) => {
-            reject(err);
-            llmProcess.stdout.off('data', onData);
-        };
-
-        llmProcess.stdout.on('data', onData);
-        llmProcess.stderr.on('data', onError);
-
-        setTimeout(() => {
-            reject(new Error(`LLM server did not become ready in time (waiting for "${readinessMessage}").`));
-        }, 30000); // 30 seconds timeout
-    });
+        if (isValid) {
+            return answer.toUpperCase();
+        } else {
+            return null; // Handle invalid responses if needed
+        }
+    } catch (error) {
+        console.error('Error fetching completion:', error);
+        return null;
+    }
 };
 
-// Communication with LLM Servers
-const getAnswerFromLLM = (llmProcess, prompt, validResponses) => {
-    return new Promise((resolve, reject) => {
-        const onData = (data) => {
-            const chunk = data.toString().trim();
-            // Check if chunk matches any valid response
-            const isValid = validResponses.some(pattern => {
-                if (typeof pattern === 'string') {
-                    return chunk.toUpperCase() === pattern;
-                } else if (pattern instanceof RegExp) {
-                    return pattern.test(chunk);
-                }
-                return false;
-            });
 
-            if (isValid) {
-                resolve(chunk.toUpperCase());
-                llmProcess.stdout.off('data', onData);
-            }
-        };
 
-        const onError = (err) => {
-            reject(err);
-            llmProcess.stdout.off('data', onData);
-        };
-
-        llmProcess.stdout.on('data', onData);
-        llmProcess.stderr.on('data', onError);
-
-        llmProcess.stdin.write(`${prompt}\n`);
-    });
-};
-
-// Function to Retrieve Stored Answer
 const findAnswerInJson = async (question) => {
     try {
         const fileContent = await fs.readFile(resultsFilePath, 'utf8');
@@ -279,15 +289,14 @@ const findAnswerInJson = async (question) => {
     }
 };
 
-
 const clickCorrectAnswer = async (page, correctAnswer) => {
-    const maxAttempts = 3;
+    const maxAttempts = 2;
     let attempts = 0;
     
     while (attempts < maxAttempts) {
         try {
             // Wait a bit before attempting to click
-            await randomDelay(2000, 3000);
+            await randomDelay(500, 2000);
             
             // Re-query for choices each attempt in case the DOM has updated
             const choices = await page.$$('.choice');
@@ -324,7 +333,7 @@ const clickCorrectAnswer = async (page, correctAnswer) => {
 
                     // Move mouse to element first
                     await moveMouseToElement(page, choice);
-                    await randomDelay(800, 1000);
+                    await randomDelay(600, 1500);
 
                     // Try to click the element
                     await choice.click({ delay: Math.floor(Math.random() * 100) + 50 });
@@ -436,15 +445,23 @@ const extractFirstLetter = async (page) => {
     });
 };
 
-// Utility Function to Generate Random String
 const generateRandomString = (length) => {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';
+    // Define key clusters based on proximity on a QWERTY keyboard
+    const keyClusters = [
+        'qwert', 'asdfg', 'zxcvb',
+        'yuiop', 'hjkl;', 'bnm,./',
+        '12345', '67890'
+    ];
+
+    const randomCluster = keyClusters[Math.floor(Math.random() * keyClusters.length)];
+
     let result = '';
     for (let i = 0; i < length; i++) {
-        result += characters.charAt(Math.floor(Math.random() * characters.length));
+        result += randomCluster.charAt(Math.floor(Math.random() * randomCluster.length));
     }
     return result;
 };
+
 
 // Detect and Log Question Type
 const detectAndLogQuestionType = async (page) => {
@@ -524,32 +541,6 @@ const tryClick15MinButton = async (page) => {
 (async () => {
     await initializeResultsFile();
 
-    // Start LLM Servers
-    const mainLLMProcess = startLLMServer('main');
-    
-
-    // Wait for LLM Servers to be Ready
-    try {
-        console.log('Waiting for the Main LLM server to load...');
-        await waitForLLMReady(mainLLMProcess);
-        console.log('Main LLM server is ready.');
-    } catch (err) {
-        console.error('Error waiting for LLM server readiness:', err);
-        mainLLMProcess.kill();
-        fillBlankLLMProcess.kill();
-        process.exit(1);
-    }
-    const fillBlankLLMProcess = startLLMServer('fillBlank');
-    try {
-        console.log('Waiting for the Fill-in-the-Blank LLM server to load...');
-        await waitForLLMReady(fillBlankLLMProcess);
-        console.log('Fill-in-the-Blank LLM server is ready.');
-    } catch (err) {
-        console.error('Error waiting for LLM server readiness:', err);
-        mainLLMProcess.kill();
-        fillBlankLLMProcess.kill();
-        process.exit(1);
-    }
 
     // Launch Puppeteer Browser
     console.log("Launching the browser...");
@@ -653,7 +644,7 @@ const tryClick15MinButton = async (page) => {
                     lastQuestionType = 'mcq';
                     break;
                 case 'mcq':
-                    await handleMCQQuestion(page, hint, processedQuestions, mainLLMProcess);
+                    await handleMCQQuestion(page, hint, processedMCQQuestions);
                     lastQuestionType = 'mcq';
                     break;
                 case 'reload':
@@ -679,14 +670,14 @@ const tryClick15MinButton = async (page) => {
     // Handle Practice Question
     const handlePracticeQuestion = async (page, isIKTElementPresent) => {
         console.log("Handling practice question...");
-        await randomDelay(4500, 5500);
+        await randomDelay(2500, 4500);
     
         const choices = await page.$$('.choice');
         for (const choice of choices) {
             if (await choice.evaluate(el => el.isConnected)) {
                 await humanClick(page, choice);
                 console.log("Clicked on a choice.");
-                await randomDelay(400, 900);
+                await randomDelay(300, 1200);
             } else {
                 console.log("Choice element is detached from the document. Skipping click.");
             }
@@ -702,7 +693,7 @@ const tryClick15MinButton = async (page) => {
         lastPracticeWordForm = wordForm;
 
     
-        await randomDelay(1500, 2500);
+        await randomDelay(1500, 3500);
     
         const nextBtn = await page.$('#next-btn');
         if (nextBtn) {
@@ -748,7 +739,7 @@ const tryClick15MinButton = async (page) => {
             const answerBox = await page.$('#choice');
             if (answerBox) {
                 await moveMouseToElement(page, answerBox);
-                await randomDelay(500, 1000);
+                await randomDelay(800, 2000);
                 await page.type('#choice', lastPracticeWordForm, { delay: Math.floor(Math.random() * 100) + 50 });
                 
                 console.log(`Filled in the blank with the last practice word form: ${lastPracticeWordForm}`);
@@ -759,15 +750,22 @@ const tryClick15MinButton = async (page) => {
             if (wordLength && hint) { // Removed firstLetter requirement
                 console.log("Using Fill-in-the-Blank LLM to guess the word...");
                 try {
+                    const fillBlankPrompt = `What is a ${wordLength}-letter word that starts with '${firstLetter}' and means something similar to '${hint}'? Provide only the word as the answer.`;
+                    
                     const guessedWord = await getAnswerFromLLM(
-                        fillBlankLLMProcess,
-                        `${wordLength},${firstLetter},${hint}`,
-                        ['UNKNOWN', /^[a-zA-Z]+$/]
+                        fillBlankPrompt,
+                        ['UNKNOWN', /^[a-zA-Z]+$/],
+                        {
+                            model: 'gpt-4',
+                            systemPrompt: 'You are an assistant that provides single-word answers based on given clues. Only respond with your awnser your awnser should be a capital letter.',
+                            max_tokens: 10,
+                            temperature: 0,
+                        }
                     );
     
                     console.log(`Fill-in-the-Blank LLM Guessed Word: ${guessedWord}`);
     
-                    if (guessedWord && guessedWord.toLowerCase() !== 'unknown') {
+                    if (guessedWord && guessedWord.toLowerCase() !== 'unknown' && /^[A-Za-z]+$/.test(guessedWord)) {
                         // Remove the first character (already provided)
                         const processedWord = guessedWord.substring(1);
                         console.log(`Processed Word (without first letter): ${processedWord}`);
@@ -775,7 +773,7 @@ const tryClick15MinButton = async (page) => {
                         const answerBox = await page.$('#choice');
                         if (answerBox) {
                             await moveMouseToElement(page, answerBox);
-                            await randomDelay(500, 1000);
+                            await randomDelay(500, 1200);
                             await page.type('#choice', processedWord, { delay: Math.floor(Math.random() * 100) + 50 });
                             console.log(`Filled in the blank with LLM guessed word: ${processedWord}`);
                         } else {
@@ -788,7 +786,7 @@ const tryClick15MinButton = async (page) => {
                         const answerBox = await page.$('#choice');
                         if (answerBox) {
                             await moveMouseToElement(page, answerBox);
-                            await randomDelay(500, 1000);
+                            await randomDelay(500, 1300);
                             await page.type('#choice', randomChars, { delay: Math.floor(Math.random() * 100) + 50 });
                             console.log(`Filled in the blank with random characters: ${randomChars}`);
                         } else {
@@ -796,14 +794,14 @@ const tryClick15MinButton = async (page) => {
                         }
                     }
                 } catch (err) {
-                    console.error('Error communicating with Fill-in-the-Blank LLM:', err);
+                    console.error('Error communicating with OpenAI:', err);
                     if (wordLength) {
                         const remainingLength = wordLength - 1;
                         const randomChars = generateRandomString(remainingLength);
                         const answerBox = await page.$('#choice');
                         if (answerBox) {
                             await moveMouseToElement(page, answerBox);
-                            await randomDelay(500, 1000);
+                            await randomDelay(500, 1400);
                             await page.type('#choice', randomChars, { delay: Math.floor(Math.random() * 100) + 50 });
                             console.log(`Filled in the blank with random characters due to error: ${randomChars}`);
                         } else {
@@ -820,6 +818,7 @@ const tryClick15MinButton = async (page) => {
         processedFillInTheBlankQuestions.add(currentQuestionText);
         console.log("Marked the fill-in-the-blank question as processed to prevent duplicate handling.");
     };
+    
     
     
     
@@ -848,7 +847,7 @@ const tryClick15MinButton = async (page) => {
         // Proceed to handle the image MCQ
         const mcqImageChoices = await page.$$('.choice');
         if (mcqImageChoices.length > 0) {
-            await randomDelay(5000, 8000);
+            await randomDelay(4000, 8000);
             const randomIndex = Math.floor(Math.random() * mcqImageChoices.length);
             await humanClick(page, mcqImageChoices[randomIndex]);
             console.log(`Answered multiple choice question with image randomly: Choice ${randomIndex + 1}`);
@@ -862,16 +861,16 @@ const tryClick15MinButton = async (page) => {
     
 
     // Handle Regular Multiple Choice Question
-    const handleMCQQuestion = async (page, hint, processedMCQQuestions, mainLLMProcess) => {
+    const handleMCQQuestion = async (page, hint, processedMCQQuestions) => {
         const { question: currentQuestion, answers: currentAnswers } = await extractQuestionAndAnswers(page);
         
         if (!currentQuestion) {
             console.log("Failed to extract the current question or answers.");
             return;
         }
-
+    
         const questionKey = currentQuestion.toLowerCase();
-
+    
         // Check if the question has already been processed or exists in JSON
         const storedAnswer = await findAnswerInJson(currentQuestion);
         if (storedAnswer) {
@@ -879,25 +878,23 @@ const tryClick15MinButton = async (page) => {
             await clickCorrectAnswer(page, storedAnswer);
             return;
         }
-
+    
         // Check if the question has been processed in this session
         if (processedMCQQuestions.has(questionKey)) {
             console.log(`This multiple-choice question has already been processed. Skipping.`);
             return;
         }
-
+    
         // Mark the question as being processed
         processedMCQQuestions.add(questionKey);
-
-        console.log("New Multiple-Choice Question Detected:", currentQuestion);
-        console.log("Answer Choices:", currentAnswers);
-
+    
+    
         // Attempt to detect the correct answer from the page (if possible)
         const correctAnswer = await page.evaluate(() => {
             const correctElement = document.querySelector('.choice.correct');
             return correctElement ? correctElement.textContent.replace(/\s+/g, ' ').trim() : null;
         });
-
+    
         if (correctAnswer) {
             console.log("Correct Answer Detected:", correctAnswer);
             enqueueSave(currentQuestion, currentAnswers, correctAnswer);
@@ -907,53 +904,56 @@ const tryClick15MinButton = async (page) => {
             processedMCQQuestions.delete(questionKey);
             return;
         }
-
+    
         // If correct answer isn't directly available, proceed to use LLM
         console.log("Answer not found in JSON. Using LLM to guess the answer.");
-        await randomDelay(2000, 5000);
-
+    
         const numChoices = currentAnswers.length;
         const validLetters = ['A', 'B', 'C', 'D', 'E'].slice(0, numChoices);
         const lettersInPrompt = validLetters.join(', ');
-
+    
         const options = currentAnswers.map((choice, idx) => `${String.fromCharCode(65 + idx)}) ${choice}`).join(', ');
+        console.log(options)
         const prompt = `Question: ${currentQuestion} | Answer options: ${options} | Answer (respond with only the letter ${lettersInPrompt} or 'Unknown'):`;
         console.log(`Sending to LLM`);
-
+    
         try {
-            const guessedAnswer = await getAnswerFromLLM(mainLLMProcess, prompt, [...validLetters, 'UNKNOWN']);
+            const guessedAnswer = await getAnswerFromLLM(prompt, [...validLetters, 'UNKNOWN'], {
+                model: 'gpt-4',
+                systemPrompt: 'You are an assistant that selects the best multiple-choice answer. you should only respond with the letter of the choice or "Unknown".',
+                max_tokens: 10,
+                temperature: 0,
+            });
             console.log(`Main LLM Guessed Answer: ${guessedAnswer}`);
-
-            if (guessedAnswer && guessedAnswer !== 'UNKNOWN') {
-                if (validLetters.includes(guessedAnswer.toUpperCase())) {
-                    const answerIndex = validLetters.indexOf(guessedAnswer.toUpperCase());
-                    if (answerIndex !== -1 && answerIndex < currentAnswers.length) {
-                        const choiceElements = await page.$$('.choice');
-                        if (choiceElements[answerIndex]) {
-                            await humanClick(page, choiceElements[answerIndex]);
-                            console.log(`Clicked on the guessed answer: ${guessedAnswer.toUpperCase()}`);
-                            // Enqueue the answer to save it
-                            const correctChoice = currentAnswers[answerIndex];
-                            enqueueSave(currentQuestion, currentAnswers, correctChoice);
-                        } else {
-                            console.log(`Guessed answer index ${answerIndex} is out of bounds.`);
-                        }
+    
+            if (guessedAnswer && validLetters.includes(guessedAnswer.toUpperCase())) {
+                const answerIndex = validLetters.indexOf(guessedAnswer.toUpperCase());
+                if (answerIndex !== -1 && answerIndex < currentAnswers.length) {
+                    const choiceElements = await page.$$('.choice');
+                    if (choiceElements[answerIndex]) {
+                        await randomDelay(2000, 5000);
+                        await humanClick(page, choiceElements[answerIndex]);
+                        console.log(`Clicked on the guessed answer: ${guessedAnswer.toUpperCase()}`);
+                        // Enqueue the answer to save it
+                        const correctChoice = currentAnswers[answerIndex];
+                        enqueueSave(currentQuestion, currentAnswers, correctChoice);
                     } else {
-                        console.log(`Guessed answer "${guessedAnswer}" is invalid or out of range.`);
+                        console.log(`Guessed answer index ${answerIndex} is out of bounds.`);
                     }
                 } else {
-                    console.log(`Guessed answer "${guessedAnswer}" is not among valid options (${lettersInPrompt}).`);
+                    console.log(`Guessed answer "${guessedAnswer}" is invalid or out of range.`);
                 }
             } else {
-                console.log("Main LLM did not provide a valid answer.");
+                console.log(`Guessed answer "${guessedAnswer}" is not among valid options (${lettersInPrompt}).`);
             }
         } catch (err) {
-            console.error('Error communicating with Main LLM:', err);
+            console.error('Error communicating with OpenAI:', err);
         } finally {
             // Remove the question from processedMCQQuestions regardless of outcome to allow retries if needed
             processedMCQQuestions.delete(questionKey);
         }
     };
+    
 
 
 
@@ -967,7 +967,7 @@ const tryClick15MinButton = async (page) => {
     if (await safeWaitForSelector('#single-question', page) || await safeWaitForSelector('#next-btn', page)) {
         console.log("First question element detected.");
         await handleQuestion();
-        await randomDelay(1000, 2000);
+        await randomDelay(1800, 2500);
         console.log("Polling for new questions...");
         setInterval(handleQuestion, 2000 + Math.floor(Math.random() * 500)); // Poll every 2-2.5 seconds
     } else {
@@ -981,8 +981,8 @@ const tryClick15MinButton = async (page) => {
             await new Promise(resolve => setTimeout(resolve, 100));
         }
         await browser.close();
-        mainLLMProcess.kill();
-        fillBlankLLMProcess.kill();
         process.exit(0);
     });
 })();
+
+
