@@ -84,7 +84,7 @@ Node.js is a JavaScript runtime that allows you to run JavaScript code outside o
    node -v
    ```
 
-   - You should see the installed Node.js version, e.g., `v18.16.0`.
+   - You should see the installed Node.js version, e.g., `v20.18.0`.
 
 4. **Check npm Version**:
 
@@ -92,7 +92,7 @@ Node.js is a JavaScript runtime that allows you to run JavaScript code outside o
    npm -v
    ```
 
-   - You should see the installed npm version, e.g., `9.5.1`.
+   - You should see the installed npm version, e.g., `10.8.2`.
 
    > **Troubleshooting**: If you encounter an error stating that `node` or `npm` is not recognized, ensure that Node.js was added to your system's `PATH`. If not, reinstall Node.js and make sure to select the **Add to PATH** option during installation.
 
