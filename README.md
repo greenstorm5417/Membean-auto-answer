@@ -371,4 +371,3 @@ This project is open-source and available under the [MIT License](LICENSE).
 ---
 
 By following this guide, even individuals with no prior coding experience should be able to set up and run the Membean Bot on a Windows system. If you encounter any issues not covered in the troubleshooting section, consider reaching out to relevant community forums or the project's maintainers for assistance.
-```
