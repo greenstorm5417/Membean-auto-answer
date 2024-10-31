@@ -147,7 +147,7 @@ The project relies on several Node.js packages. Here's how to install them:
    Run the following command to install all necessary dependencies:
 
    ```bash
-   npm install puppeteer-extra puppeteer-extra-plugin-stealth openai dotenv bezier-js
+   npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth openai dotenv bezier-js
    ```
 
    - **puppeteer-extra**: A plugin framework for Puppeteer.
