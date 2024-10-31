@@ -21,7 +21,7 @@ let currentMousePosition = { x: 0, y: 0 };
 const username = 'INSERT USERNAME'
 const password = 'INSERT PASSWORD'
 
-const sessionMultiplier = 1 + Math.random() * (1.233333 - 1);
+const sessionMultiplier = 1.1 + Math.random() * (1.444444 - 1.1);
 console.log(`Session multiplier: ${sessionMultiplier}`);
 
 const saveQueue = [];
@@ -736,10 +736,16 @@ const tryClick15MinButton = async (page) => {
     console.log("Launching the browser...");
     const browser = await puppeteer.launch({
         headless: false,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--mute-audio'],
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--mute-audio', '--start-maximized',],
     });
 
     const page = await browser.newPage();
+    const { width, height } = await page.evaluate(() => ({
+        width: window.screen.availWidth,
+        height: window.screen.availHeight
+      }));
+      await page.setViewport({ width, height });
+      
     console.log("Browser launched and new page opened.");
 
     await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) ' +
