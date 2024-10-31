@@ -1,156 +1,309 @@
 const puppeteer = require('puppeteer-extra');
 const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+const { Bezier } = require('bezier-js');
 const fs = require('fs').promises;
 const path = require('path');
 const OpenAI = require("openai");
 require('dotenv').config();
 
-// Configure OpenAI
+let questionPollingInterval = null;
+
+const DEBUG_MOUSE_CURSOR = false;
+
 const openai = new OpenAI({});
 
-// Apply the stealth plugin to Puppeteer
 puppeteer.use(StealthPlugin());
 
-// Define the path to the JSON file
 const resultsFilePath = path.join(__dirname, 'results.json');
-
 
 let currentMousePosition = { x: 0, y: 0 };
 
-const username = 'INPUT USERNAME'
-const password = 'INPUT PASSWORD'
+const username = 'INSERT USERNAME'
+const password = 'INSERT PASSWORD'
 
 const sessionMultiplier = 1 + Math.random() * (1.233333 - 1);
 console.log(`Session multiplier: ${sessionMultiplier}`);
 
-// Helper Functions
+const saveQueue = [];
+let isSaving = false;
+
+
 const randomDelay = (min = 500, max = 1500) => 
     new Promise(resolve => {
         const baseDelay = Math.floor(Math.random() * (max - min + 1)) + min;
         const adjustedDelay = Math.floor(baseDelay * sessionMultiplier);
         setTimeout(resolve, adjustedDelay);
-    });
+});
+
+const calculateDistance = (x1, y1, x2, y2) => {
+    const deltaX = x2 - x1;
+    const deltaY = y2 - y1;
+    return Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+};
 
 const generateMousePath = (startX, startY, endX, endY) => {
     const path = [];
-    const distance = Math.hypot(endX - startX, endY - startY);
-    const steps = Math.max(Math.floor(distance / 10), 10); // Ensure at least 10 steps
-    
-    for (let i = 1; i <= steps; i++) {
-        const progress = i / steps;
-        
-        // Linear interpolation
-        let x = startX + (endX - startX) * progress;
-        let y = startY + (endY - startY) * progress;
-        
-        // Add slight random deviation that decreases as progress increases
-        const deviation = 5; // Maximum deviation in pixels
-        x += (Math.random() * deviation * 2 - deviation) * (1 - progress);
-        y += (Math.random() * deviation * 2 - deviation) * (1 - progress);
-        
-        path.push({ x: Math.round(x), y: Math.round(y) });
-    }
-    
-    return path;
-};
 
-const generateDistractedMousePath = (startX, startY, endX, endY) => {
-    const path = [];
-    const steps = Math.max(Math.floor(Math.hypot(endX - startX, endY - startY) / 10), 10);
+    const distance = calculateDistance(startX, startY, endX, endY);
 
-    for (let i = 1; i <= steps; i++) {
-        let x = startX + (endX - startX) * (i / steps);
-        let y = startY + (endY - startY) * (i / steps);
+    // Reduce step density: 1 step per 20 pixels, minimum 2 steps
+    const steps = Math.max(Math.floor(distance / 10), 4);
 
-        // Random zig-zag or pause 20% of the time
-        if (Math.random() < 0.2) {
-            x += Math.random() * 10 - 5; // Zig-zag
-            y += Math.random() * 10 - 5;
+    if (distance < 20) {
+        // Use linear path for short distances
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const x = startX + (endX - startX) * t;
+            const y = startY + (endY - startY) * t;
+            path.push({ x: Math.round(x), y: Math.round(y) });
         }
+    } else {
+        // Use a simple Bezier curve for longer distances with minimal randomness
+        const controlX = startX + (endX - startX) * 0.5 + (Math.random() * 10 - 5); // Minimal randomness
+        const controlY = startY + (endY - startY) * 0.5 + (Math.random() * 10 - 5); // Minimal randomness
 
-        path.push({ x: Math.round(x), y: Math.round(y) });
+        const curve = new Bezier(startX, startY, controlX, controlY, endX, endY);
+
+        for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const { x, y } = curve.get(t);
+            path.push({ x: Math.round(x), y: Math.round(y) });
+        }
     }
+
     return path;
 };
 
 const moveMouseToElement = async (page, element) => {
     const box = await element.boundingBox();
     if (box) {
-        // Slight randomness in the target position
-        const deviation = 5; // pixels
-        const targetX = box.x + box.width / 2 + (Math.random() * deviation * 2 - deviation);
-        const targetY = box.y + box.height / 2 + (Math.random() * deviation * 2 - deviation);
+        const margin = 10; // pixels
 
-        // 10-20% chance of using the distracted mouse path
-        const path = (Math.random() < 0.2)
-            ? generateDistractedMousePath(currentMousePosition.x, currentMousePosition.y, targetX, targetY)
-            : generateMousePath(currentMousePosition.x, currentMousePosition.y, targetX, targetY);
+        // Calculate the center of the target element
+        const targetCenterX = box.x + box.width / 2;
+        const targetCenterY = box.y + box.height / 2;
 
-        for (const point of path) {
-            await page.mouse.move(point.x, point.y);
-            await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 30) + 20)); // 20-50ms delay between moves
+        // Calculate the direction vector from current position to target center
+        const deltaX = targetCenterX - currentMousePosition.x;
+        const deltaY = targetCenterY - currentMousePosition.y;
+
+        // Determine the angle of movement
+        const angle = Math.atan2(deltaY, deltaX);
+
+        // Bias the click position towards the direction of movement
+        // For example, if moving right, click towards the left side of the target element
+        const biasFactor = 0.25; // Adjust between 0 (center) to 0.5 (edge)
+        const biasedOffsetX = (box.width / 2) * biasFactor * Math.cos(angle);
+        const biasedOffsetY = (box.height / 2) * biasFactor * Math.sin(angle);
+
+        // Calculate the biased target coordinates within the target element
+        const biasedTargetX = targetCenterX - biasedOffsetX + (Math.random() * 10 - 5); // ±5 pixels randomness
+        const biasedTargetY = targetCenterY - biasedOffsetY + (Math.random() * 10 - 5); // ±5 pixels randomness
+
+        // Ensure the biasedTargetX and biasedTargetY are within the element's bounds
+        const finalTargetX = Math.min(Math.max(biasedTargetX, box.x + margin), box.x + box.width - margin);
+        const finalTargetY = Math.min(Math.max(biasedTargetY, box.y + margin), box.y + box.height - margin);
+
+        const path = generateMousePath(currentMousePosition.x, currentMousePosition.y, finalTargetX, finalTargetY);
+
+        const totalSteps = path.length;
+        const groupSize = 2; // Number of steps per group (adjust between 3-5 as needed)
+
+        // Generate a random total movement time between 200ms and 450ms
+        const totalMovementTime = Math.floor(Math.random() * (950 - 400 + 1)) + 400; // 400-950ms
+        console.log(`Total Movement Time: ${totalMovementTime}ms`);
+
+        // Calculate the number of groups
+        const numberOfGroups = Math.ceil(totalSteps / groupSize);
+
+        // Function to calculate ease-in-out quadratic weight
+        const easeInOutQuad = (t) => {
+            return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+        };
+
+        // Calculate weights for each group based on their position
+        const weights = [];
+        for (let i = 0; i < numberOfGroups; i++) {
+            const t = (i + 0.5) / numberOfGroups; // Midpoint of the group
+            weights.push(easeInOutQuad(t));
         }
 
-        // Update the current mouse position
-        currentMousePosition = { x: targetX, y: targetY };
-    }
+        // Normalize weights so that their sum equals 1
+        const sumWeights = weights.reduce((acc, val) => acc + val, 0);
+        const normalizedWeights = weights.map(w => w / sumWeights);
+
+        // Calculate delay for each group
+        const delays = normalizedWeights.map(w => Math.floor(w * totalMovementTime));
+
+        // Adjust delays to ensure the total delay equals totalMovementTime
+        let accumulatedDelay = delays.reduce((acc, val) => acc + val, 0);
+        const remainingDelay = totalMovementTime - accumulatedDelay;
+        if (remainingDelay > 0 && delays.length > 0) {
+            delays[delays.length - 1] += remainingDelay; // Add the remaining delay to the last group
+        }
+
+        console.log(`Delays Between Groups: ${delays}ms`);
+
+        for (let i = 0; i < numberOfGroups; i++) {
+            const start = i * groupSize;
+            const end = start + groupSize;
+            const group = path.slice(start, end);
+            for (const point of group) {
+                await page.mouse.move(point.x, point.y);
+                if (DEBUG_MOUSE_CURSOR) {
+                    await page.evaluate(
+                        (x, y) => {
+                            let cursor = document.getElementById('custom-cursor');
+                            if (!cursor) {
+                                cursor = document.createElement('div');
+                                cursor.id = 'custom-cursor';
+                                cursor.style.position = 'absolute';
+                                cursor.style.width = '6px';
+                                cursor.style.height = '6px';
+                                cursor.style.borderRadius = '50%';
+                                cursor.style.backgroundColor = 'red';
+                                cursor.style.zIndex = '9999';
+                                document.body.appendChild(cursor);
+                            }
+                            cursor.style.top = `${y}px`;
+                            cursor.style.left = `${x}px`;
+                        },
+                        point.x,
+                        point.y
+                    );
+                }
+            }
+
+            // Introduce the calculated delay after each group
+            await new Promise(resolve => setTimeout(resolve, delays[i]));
+        }
+
+        // Optional: Pause briefly after reaching the target to simulate hover
+        await new Promise(resolve => setTimeout(resolve, Math.floor(Math.random() * 100) + 50)); // 50-150ms
+
+        currentMousePosition = { x: finalTargetX, y: finalTargetY };
+    };
 };
 
-const humanClick = async (page, element) => {
+const humanClick = async (page, element, selector = null) => {
     await moveMouseToElement(page, element);
     await randomDelay(100, 500);
-    try {
-        await element.click();
-        console.log("Human-like click performed.");
-    } catch (err) {
-        console.error("Error during human-like click:", err);
+    const maxRetries = 2;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+        try {
+            // Ensure the element is still connected to the DOM
+            const isConnected = await page.evaluate(el => el.isConnected, element);
+            if (!isConnected) {
+                throw new Error('Element is detached from the DOM.');
+            }
+
+            // Ensure the element is an actual Element node
+            const tagName = await page.evaluate(el => el.tagName, element);
+            if (!tagName) {
+                throw new Error('Node is not an Element.');
+            }
+
+            // Check if the element is visible
+            const isVisible = await page.evaluate(el => {
+                const style = window.getComputedStyle(el);
+                return style && style.visibility !== 'hidden' && style.display !== 'none' && style.opacity !== '0';
+            }, element);
+            if (!isVisible) {
+                throw new Error('Element is not visible.');
+            }
+
+            // Check if the element is within the viewport
+            const isInViewport = await element.isIntersectingViewport();
+            if (!isInViewport) {
+                throw new Error('Element is not within the viewport.');
+            }
+
+            // Attempt to click the element
+            await element.click();
+            console.log("Human-like click performed.");
+            return; // Exit the function after a successful click
+
+        } catch (err) {
+            if (
+                err.message.includes('detached from the DOM') ||
+                err.message.includes('not an Element') ||
+                err.message.includes('not visible') ||
+                err.message.includes('not within the viewport')
+            ) {
+                console.warn(`Attempt ${attempt + 1}: ${err.message} Retrying...`);
+                attempt++;
+
+                // Optional: If a selector is provided, try re-querying the element
+                if (selector) {
+                    element = await page.$(selector);
+                    if (!element) {
+                        console.error(`Failed to re-query the element using selector "${selector}".`);
+                        break;
+                    }
+                }
+
+                await randomDelay(500, 1000); // Wait before retrying
+            } else {
+                console.error("Error during human-like click:", err);
+                break; // Break out of the loop for other types of errors
+            }
+        }
     }
+
+    console.error("Failed to perform human-like click after multiple attempts.");
 };
 
-const humanType = async (page, selector, text) => {
-    const element = await page.$(selector);
-    if (element) {
+const humanType = async (page, selector, text, maxRetries = 2, retryDelay = 1000) => {
+    let element = await page.$(selector);
+    let attempts = 0;
+
+    while (!element && attempts < maxRetries) {
+        console.warn(`Element with selector "${selector}" not found. Retrying in ${retryDelay}ms... (Attempt ${attempts + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, retryDelay));
+        element = await page.$(selector);
+        attempts++;
+    }
+
+    if (!element) {
+        console.error(`Element with selector "${selector}" not found after ${maxRetries} attempts. Skipping typing.`);
+        return;
+    }
+
+    try {
         await moveMouseToElement(page, element);
         await randomDelay(300, 700);
 
         let typedText = '';
-
-        // Available characters for random mistake typing
         const randomChars = 'abcdefghijklmnopqrstuvwxyz';
 
         for (const char of text) {
-            // 10-20% chance to make a mistake by typing a wrong character before deleting it
-            if (Math.random() < 0.05 && typedText.length > 0) {
-                // Type a random wrong character
+            // 3% chance to make a mistake
+            if (Math.random() < 0.03 && typedText.length > 0) {
                 const wrongChar = randomChars.charAt(Math.floor(Math.random() * randomChars.length));
-                await page.type(selector, wrongChar, { delay: Math.floor(Math.random() * 200) + 100 });
+                await page.type(selector, wrongChar, { delay: Math.floor(Math.random() * 100) + 100 });
                 typedText += wrongChar;
 
-                // Pause briefly
-                await randomDelay(300, 700);
+                await randomDelay(100, 300); // Brief pause
 
-                // Press backspace to delete the wrong character
-                await page.keyboard.press('Backspace');
-                typedText = typedText.slice(0, -1); // Remove last (wrong) char from the typed text
-
-                // Pause again before continuing
-                await randomDelay(300, 700);
+                await page.keyboard.press('Backspace'); // Delete mistake
+                typedText = typedText.slice(0, -1); // Remove last char
             }
 
-            // Type the correct character
-            await page.type(selector, char, { delay: Math.floor(Math.random() * 200) + 100 });
+            await page.type(selector, char, { delay: Math.floor(Math.random() * 200) + 30 });
             typedText += char;
 
-            // Introduce a pause after typing a word or a 30% chance to pause after any space character
-            if (char === ' ' && Math.random() < 0.3) {
-                await randomDelay(500, 2000);
+            if (char === ' ' && Math.random() < 0.3) { // Pause after spaces
+                await randomDelay(200, 700);
             }
         }
 
-        console.log("Human-like typing with occasional mistakes performed.");
+        console.log("Human-like typing with mistakes and pauses performed.");
+    } catch (err) {
+        console.error(`Failed to type into "${selector}":`, err.message);
     }
 };
-
 
 const initializeResultsFile = async () => {
     try {
@@ -170,10 +323,6 @@ const initializeResultsFile = async () => {
         }
     }
 };
-
-// Save Queue to Prevent Concurrent Writes
-const saveQueue = [];
-let isSaving = false;
 
 const enqueueSave = (question, choices, answer, firstLetter = null) => {
     saveQueue.push({ question, choices, answer, firstLetter });
@@ -237,7 +386,6 @@ const saveResult = async (question, choices, answer, firstLetter) => {
     }
 };
 
-
 const getAnswerFromLLM = async (prompt, validResponses, options = {}) => {
     try {
         const response = await openai.chat.completions.create({
@@ -267,15 +415,13 @@ const getAnswerFromLLM = async (prompt, validResponses, options = {}) => {
         if (isValid) {
             return answer.toUpperCase();
         } else {
-            return null; // Handle invalid responses if needed
+            return null;
         }
     } catch (error) {
         console.error('Error fetching completion:', error);
         return null;
     }
 };
-
-
 
 const findAnswerInJson = async (question) => {
     try {
@@ -303,65 +449,63 @@ const clickCorrectAnswer = async (page, correctAnswer) => {
             
             // Check if any choices exist
             if (!choices.length) {
-                console.log("No choices found on attempt", attempts + 1);
+                console.log(`No choices found on attempt ${attempts + 1}`);
                 attempts++;
                 continue;
             }
 
+            let targetChoice = null;
+
             for (const choice of choices) {
                 // Verify element is still attached to DOM
-                const isAttached = await page.evaluate(el => {
-                    return el && el.isConnected && 
-                           window.getComputedStyle(el).display !== 'none' &&
-                           window.getComputedStyle(el).visibility !== 'hidden';
-                }, choice);
-
-                if (!isAttached) {
-                    continue;
-                }
+                const isAttached = await page.evaluate(el => el.isConnected, choice);
+                if (!isAttached) continue;
 
                 // Get the text content of the choice
                 const text = await page.evaluate(el => el.textContent.trim(), choice);
                 
                 if (text.toLowerCase() === correctAnswer.toLowerCase()) {
-                    // Additional check to ensure element is visible and clickable
-                    const box = await choice.boundingBox();
-                    if (!box) {
-                        console.log("Choice element has no bounding box. Skipping.");
-                        continue;
-                    }
-
-                    // Move mouse to element first
-                    await moveMouseToElement(page, choice);
-                    await randomDelay(600, 1500);
-
-                    // Try to click the element
-                    await choice.click({ delay: Math.floor(Math.random() * 100) + 50 });
-                    console.log(`Successfully clicked the correct answer: ${correctAnswer}`);
-                    return true;
+                    targetChoice = choice;
+                    break;
                 }
             }
 
-            console.log(`Could not find or click the correct answer: ${correctAnswer} on attempt ${attempts + 1}`);
-            attempts++;
-            
-            // If we've tried multiple times, try clicking using JavaScript directly
-            if (attempts === maxAttempts - 1) {
-                console.log("Attempting fallback click method...");
-                const clicked = await page.evaluate((answerText) => {
-                    const elements = Array.from(document.querySelectorAll('.choice'));
-                    const element = elements.find(el => 
-                        el.textContent.trim().toLowerCase() === answerText.toLowerCase());
-                    if (element) {
-                        element.click();
+            if (targetChoice) {
+                // Additional check to ensure element is visible and clickable
+                const box = await targetChoice.boundingBox();
+                if (!box) {
+                    console.log("Choice element has no bounding box. Skipping.");
+                    attempts++;
+                    continue;
+                }
+
+                // Use the updated humanClick function
+                await humanClick(page, targetChoice);
+                return true;
+            } else {
+                console.log(`Could not find the correct answer: "${correctAnswer}" on attempt ${attempts + 1}`);
+                attempts++;
+
+                // If we've tried multiple times, try clicking using JavaScript directly
+                if (attempts === maxAttempts - 1) {
+                    console.log("Attempting fallback click method...");
+                    const clicked = await page.evaluate((answerText) => {
+                        const elements = Array.from(document.querySelectorAll('.choice'));
+                        const element = elements.find(el => 
+                            el.textContent.trim().toLowerCase() === answerText.toLowerCase());
+                        if (element) {
+                            element.click();
+                            return true;
+                        }
+                        return false;
+                    }, correctAnswer);
+                    
+                    if (clicked) {
+                        console.log("Successfully clicked using fallback method");
                         return true;
+                    } else {
+                        console.log("Fallback click method failed.");
                     }
-                    return false;
-                }, correctAnswer);
-                
-                if (clicked) {
-                    console.log("Successfully clicked using fallback method");
-                    return true;
                 }
             }
 
@@ -379,8 +523,6 @@ const clickCorrectAnswer = async (page, correctAnswer) => {
     return false;
 };
 
-
-// Enhanced Element Wait
 const safeWaitForSelector = async (selector, page, timeout = 30000) => {
     try {
         await page.waitForSelector(selector, { timeout });
@@ -391,7 +533,6 @@ const safeWaitForSelector = async (selector, page, timeout = 30000) => {
     }
 };
 
-// Question and Answer Extraction
 const extractQuestionAndAnswers = async (page) => {
     const questionData = await page.evaluate(() => {
         const questionElement = document.querySelector('#single-question');
@@ -410,6 +551,54 @@ const extractQuestionAndAnswers = async (page) => {
     if (questionData.text) {
         answers = await page.evaluate(() => {
             const answerElements = Array.from(document.querySelectorAll('.choice'));
+            return answerElements.length
+                ? answerElements
+                      .map(el => el.textContent.replace(/\s+/g, ' ').trim())
+                      .filter(choice => {
+                          const normalized = choice.toLowerCase().replace(/’/g, "'");
+                          return normalized !== "i'm not sure";
+                      })
+                : [];
+        });
+    }
+
+    return { question: questionData.text, answers, hasImage: questionData.hasImage };
+};
+
+const extractMCQQuestionAndAnswers = async (page) => {
+    // Extract the question text and check for associated image
+    const questionData = await page.evaluate(() => {
+        // Attempt to select the question from '#single-question > h3'
+        let questionElement = document.querySelector('#single-question > h3');
+        let text = questionElement ? questionElement.textContent.replace(/\s+/g, ' ').trim() : null;
+
+        // If not found, attempt to select the question from '#single-question > p'
+        if (!text) {
+            questionElement = document.querySelector('#single-question > p');
+            text = questionElement ? questionElement.textContent.replace(/\s+/g, ' ').trim() : null;
+        }
+
+        // Clean up the question text if necessary
+        if (text) {
+            text = text.replace(/ Correct!$/, '').replace(/ Incorrect!$/, '');
+        }
+
+        // Check if there's an associated image with the question
+        const img = document.querySelector('#constellation > img[alt="constellation question"]');
+        const hasImage = img !== null;
+
+        return { text, hasImage };
+    });
+
+    let answers = [];
+
+    // If a question was found, proceed to extract the answer choices
+    if (questionData.text) {
+        answers = await page.evaluate(() => {
+            // Select all elements that represent answer choices
+            const answerElements = Array.from(document.querySelectorAll('.choice'));
+            
+            // Extract and clean the text from each choice, excluding "I'm not sure" options
             return answerElements.length
                 ? answerElements
                       .map(el => el.textContent.replace(/\s+/g, ' ').trim())
@@ -446,7 +635,6 @@ const extractFirstLetter = async (page) => {
 };
 
 const generateRandomString = (length) => {
-    // Define key clusters based on proximity on a QWERTY keyboard
     const keyClusters = [
         'qwert', 'asdfg', 'zxcvb',
         'yuiop', 'hjkl;', 'bnm,./',
@@ -462,9 +650,16 @@ const generateRandomString = (length) => {
     return result;
 };
 
-
-// Detect and Log Question Type
 const detectAndLogQuestionType = async (page) => {
+
+    const isStopClickQuestion = await page.$('#Click_me_to_stop') !== null;
+    
+    if (isStopClickQuestion) {
+        console.log("Stop Click Question Detected.");
+        console.log("Click me to stop");
+        return { questionType: 'stop_click_question' };
+    }
+
     const isPracticeQuestion = await page.$('#next-btn') !== null;
     const isIKTElementPresent = await page.$('#ikt') !== null;
 
@@ -483,7 +678,7 @@ const detectAndLogQuestionType = async (page) => {
             const hint = await extractHint(page);
             console.log(`Image Multiple Choice Question Detected: ${question}`);
             if (hint) console.log(`Hint: ${hint}`);
-            console.log(`Answer Choices: ${answers.join(' | ')}`);
+            console.log(`Answer Choices: ${answers}`);
             return { questionType: 'mcq_image', hint };
         }
 
@@ -505,9 +700,7 @@ const detectAndLogQuestionType = async (page) => {
 
         // **Integrated Multiple Choice Handling from Old Code**
         const hint = await extractHint(page);
-        console.log(`Regular Multiple Choice Question Detected: ${question}`);
         if (hint) console.log(`Hint: ${hint}`);
-        console.log(`Answer Choices: ${answers.join(' | ')}`);
         return { questionType: 'mcq', hint };
     } else {
         console.log("Unable to determine the type of the current question.");
@@ -516,16 +709,15 @@ const detectAndLogQuestionType = async (page) => {
 };
 
 const tryClick15MinButton = async (page) => {
-    const buttonSelector = '#\\31 5_min_'; // Escaped selector for the "15 min" button
+    const buttonSelector = '#\\31 5_min_'; 
 
     try {
         // Wait for the button to appear (if it does) and be clickable
-        const buttonAppeared = await safeWaitForSelector(buttonSelector, page, 10000); // Wait max 10s for button
+        const buttonAppeared = await safeWaitForSelector(buttonSelector, page, 10000);
         if (buttonAppeared) {
             const buttonElement = await page.$(buttonSelector);
             if (buttonElement) {
                 console.log("Found the '15 min' button. Attempting to click...");
-                await moveMouseToElement(page, buttonElement); // Move the mouse to the button
                 await humanClick(page, buttonElement); // Perform human-like click
                 console.log("'15 min' button clicked successfully.");
             }
@@ -537,16 +729,14 @@ const tryClick15MinButton = async (page) => {
     }
 };
 
-// Main Execution Function
 (async () => {
     await initializeResultsFile();
 
 
-    // Launch Puppeteer Browser
     console.log("Launching the browser...");
     const browser = await puppeteer.launch({
         headless: false,
-        args: ['--no-sandbox', '--disable-setuid-sandbox'],
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--mute-audio'],
     });
 
     const page = await browser.newPage();
@@ -619,7 +809,7 @@ const tryClick15MinButton = async (page) => {
     const processedMCQQuestions = new Set();
     let isProcessing = false;
 
-    // Handle Different Question Types
+
     const handleQuestion = async () => {
         if (isProcessing) return;
         isProcessing = true;
@@ -647,6 +837,10 @@ const tryClick15MinButton = async (page) => {
                     await handleMCQQuestion(page, hint, processedMCQQuestions);
                     lastQuestionType = 'mcq';
                     break;
+                case 'stop_click_question':
+                    await handleStopClickQuestion(page, browser, questionPollingInterval);
+                    lastQuestionType = 'stop_click_question';
+                    break;
                 case 'reload':
                     await handleReloadQuestion(page);
                     break;
@@ -667,7 +861,6 @@ const tryClick15MinButton = async (page) => {
     };
     
 
-    // Handle Practice Question
     const handlePracticeQuestion = async (page, isIKTElementPresent) => {
         console.log("Handling practice question...");
         await randomDelay(2500, 4500);
@@ -709,8 +902,6 @@ const tryClick15MinButton = async (page) => {
     };
     
     
-    
-
     const handleFillInTheBlankQuestion = async (
         page,
         hint,
@@ -732,32 +923,29 @@ const tryClick15MinButton = async (page) => {
             return;
         }
     
-    
         // Proceed with handling the FIB question
         if (lastQuestionType === 'practice' && lastIsIKTElementPresent) {
             console.log("Using the last practice word form to fill in the blank.");
-            const answerBox = await page.$('#choice');
-            if (answerBox) {
-                await moveMouseToElement(page, answerBox);
-                await randomDelay(800, 2000);
-                await page.type('#choice', lastPracticeWordForm, { delay: Math.floor(Math.random() * 100) + 50 });
-                
-                console.log(`Filled in the blank with the last practice word form: ${lastPracticeWordForm}`);
-            } else {
-                console.log("Answer box not found for fill-in-the-blank question.");
-            }
+            const answerBoxSelector = '#choice';
+            await humanType(page, answerBoxSelector, lastPracticeWordForm)
+                .then(() => {
+                    console.log(`Filled in the blank with the last practice word form: ${lastPracticeWordForm}`);
+                })
+                .catch((err) => {
+                    console.error(`Failed to type into ${answerBoxSelector}:`, err.message);
+                });
         } else {
             if (wordLength && hint) { // Removed firstLetter requirement
                 console.log("Using Fill-in-the-Blank LLM to guess the word...");
                 try {
                     const fillBlankPrompt = `What is a ${wordLength}-letter word that starts with '${firstLetter}' and means something similar to '${hint}'? Provide only the word as the answer.`;
-                    
+    
                     const guessedWord = await getAnswerFromLLM(
                         fillBlankPrompt,
                         ['UNKNOWN', /^[a-zA-Z]+$/],
                         {
                             model: 'gpt-4',
-                            systemPrompt: 'You are an assistant that provides single-word answers based on given clues. Only respond with your awnser your awnser should be a capital letter.',
+                            systemPrompt: 'You are an assistant that provides single-word answers based on given clues. Only respond with your answer; your answer should be a capital letter.',
                             max_tokens: 10,
                             temperature: 0,
                         }
@@ -770,43 +958,40 @@ const tryClick15MinButton = async (page) => {
                         const processedWord = guessedWord.substring(1);
                         console.log(`Processed Word (without first letter): ${processedWord}`);
     
-                        const answerBox = await page.$('#choice');
-                        if (answerBox) {
-                            await moveMouseToElement(page, answerBox);
-                            await randomDelay(500, 1200);
-                            await page.type('#choice', processedWord, { delay: Math.floor(Math.random() * 100) + 50 });
-                            console.log(`Filled in the blank with LLM guessed word: ${processedWord}`);
-                        } else {
-                            console.log("Answer box not found for fill-in-the-blank question.");
-                        }
+                        const answerBoxSelector = '#choice';
+                        await humanType(page, answerBoxSelector, processedWord)
+                            .then(() => {
+                                console.log(`Filled in the blank with LLM guessed word: ${processedWord}`);
+                            })
+                            .catch((err) => {
+                                console.error(`Failed to type into ${answerBoxSelector}:`, err.message);
+                            });
                     } else {
                         console.log("LLM did not provide a valid word. Filling with random characters.");
                         const remainingLength = wordLength - 1;
                         const randomChars = generateRandomString(remainingLength);
-                        const answerBox = await page.$('#choice');
-                        if (answerBox) {
-                            await moveMouseToElement(page, answerBox);
-                            await randomDelay(500, 1300);
-                            await page.type('#choice', randomChars, { delay: Math.floor(Math.random() * 100) + 50 });
-                            console.log(`Filled in the blank with random characters: ${randomChars}`);
-                        } else {
-                            console.log("Answer box not found for fill-in-the-blank question.");
-                        }
+                        const answerBoxSelector = '#choice';
+                        await humanType(page, answerBoxSelector, randomChars)
+                            .then(() => {
+                                console.log(`Filled in the blank with random characters: ${randomChars}`);
+                            })
+                            .catch((err) => {
+                                console.error(`Failed to type into ${answerBoxSelector}:`, err.message);
+                            });
                     }
                 } catch (err) {
                     console.error('Error communicating with OpenAI:', err);
                     if (wordLength) {
                         const remainingLength = wordLength - 1;
                         const randomChars = generateRandomString(remainingLength);
-                        const answerBox = await page.$('#choice');
-                        if (answerBox) {
-                            await moveMouseToElement(page, answerBox);
-                            await randomDelay(500, 1400);
-                            await page.type('#choice', randomChars, { delay: Math.floor(Math.random() * 100) + 50 });
-                            console.log(`Filled in the blank with random characters due to error: ${randomChars}`);
-                        } else {
-                            console.log("Answer box not found for fill-in-the-blank question.");
-                        }
+                        const answerBoxSelector = '#choice';
+                        await humanType(page, answerBoxSelector, randomChars)
+                            .then(() => {
+                                console.log(`Filled in the blank with random characters due to error: ${randomChars}`);
+                            })
+                            .catch((err) => {
+                                console.error(`Failed to type into ${answerBoxSelector}:`, err.message);
+                            });
                     }
                 }
             } else {
@@ -821,9 +1006,6 @@ const tryClick15MinButton = async (page) => {
     
     
     
-    
-
-    // Handle Multiple Choice Question with Image
     const handleMCQImageQuestion = async (page) => {
         console.log("Handling multiple choice question with image.");
         
@@ -860,14 +1042,15 @@ const tryClick15MinButton = async (page) => {
     };
     
 
-    // Handle Regular Multiple Choice Question
     const handleMCQQuestion = async (page, hint, processedMCQQuestions) => {
-        const { question: currentQuestion, answers: currentAnswers } = await extractQuestionAndAnswers(page);
-        
+        const { question: currentQuestion, answers: currentAnswers } = await extractMCQQuestionAndAnswers(page);
+        console.log(currentQuestion);
+        console.log(currentAnswers);
         if (!currentQuestion) {
             console.log("Failed to extract the current question or answers.");
             return;
         }
+        
     
         const questionKey = currentQuestion.toLowerCase();
     
@@ -887,7 +1070,6 @@ const tryClick15MinButton = async (page) => {
     
         // Mark the question as being processed
         processedMCQQuestions.add(questionKey);
-    
     
         // Attempt to detect the correct answer from the page (if possible)
         const correctAnswer = await page.evaluate(() => {
@@ -913,68 +1095,129 @@ const tryClick15MinButton = async (page) => {
         const lettersInPrompt = validLetters.join(', ');
     
         const options = currentAnswers.map((choice, idx) => `${String.fromCharCode(65 + idx)}) ${choice}`).join(', ');
-        console.log(options)
         const prompt = `Question: ${currentQuestion} | Answer options: ${options} | Answer (respond with only the letter ${lettersInPrompt} or 'Unknown'):`;
         console.log(`Sending to LLM`);
     
-        try {
-            const guessedAnswer = await getAnswerFromLLM(prompt, [...validLetters, 'UNKNOWN'], {
-                model: 'gpt-4',
-                systemPrompt: 'You are an assistant that selects the best multiple-choice answer. you should only respond with the letter of the choice or "Unknown".',
-                max_tokens: 10,
-                temperature: 0,
-            });
-            console.log(`Main LLM Guessed Answer: ${guessedAnswer}`);
+        let guessedAnswer = null;
+        const maxLLMAttempts = 2;
     
-            if (guessedAnswer && validLetters.includes(guessedAnswer.toUpperCase())) {
-                const answerIndex = validLetters.indexOf(guessedAnswer.toUpperCase());
-                if (answerIndex !== -1 && answerIndex < currentAnswers.length) {
-                    const choiceElements = await page.$$('.choice');
-                    if (choiceElements[answerIndex]) {
-                        await randomDelay(2000, 5000);
-                        await humanClick(page, choiceElements[answerIndex]);
-                        console.log(`Clicked on the guessed answer: ${guessedAnswer.toUpperCase()}`);
-                        // Enqueue the answer to save it
-                        const correctChoice = currentAnswers[answerIndex];
-                        enqueueSave(currentQuestion, currentAnswers, correctChoice);
-                    } else {
-                        console.log(`Guessed answer index ${answerIndex} is out of bounds.`);
-                    }
+        for (let attempt = 1; attempt <= maxLLMAttempts; attempt++) {
+            try {
+                guessedAnswer = await getAnswerFromLLM(prompt, [...validLetters, 'UNKNOWN'], {
+                    model: 'gpt-4',
+                    systemPrompt: 'You are an assistant that selects the best multiple-choice answer. You should only respond with the letter of the choice if you don’t know, then guess. Sometimes the answers will appear directly after the question; if this happens, just ignore them.',
+                    max_tokens: 10,
+                    temperature: 0,
+                });
+                console.log(`Main LLM Guessed Answer (Attempt ${attempt}): ${guessedAnswer}`);
+    
+                // Check if the response is valid
+                if (guessedAnswer && validLetters.includes(guessedAnswer.toUpperCase())) {
+                    break; // Valid answer received
                 } else {
-                    console.log(`Guessed answer "${guessedAnswer}" is invalid or out of range.`);
+                    console.log(`Guessed answer "${guessedAnswer}" is not among valid options (${lettersInPrompt}).`);
+                    guessedAnswer = null; // Reset for next attempt
+                }
+            } catch (err) {
+                console.error(`Error communicating with OpenAI on attempt ${attempt}:`, err);
+                guessedAnswer = null; // Reset for next attempt
+            }
+        }
+    
+        if (guessedAnswer && validLetters.includes(guessedAnswer.toUpperCase())) {
+            const answerIndex = validLetters.indexOf(guessedAnswer.toUpperCase());
+            if (answerIndex !== -1 && answerIndex < currentAnswers.length) {
+                const choiceElements = await page.$$('.choice');
+                if (choiceElements[answerIndex]) {
+                    await randomDelay(2000, 5000);
+                    await humanClick(page, choiceElements[answerIndex]);
+                    console.log(`Clicked on the guessed answer: ${guessedAnswer.toUpperCase()}`);
+                    // Enqueue the answer to save it
+                    const correctChoice = currentAnswers[answerIndex];
+                    enqueueSave(currentQuestion, currentAnswers, correctChoice);
+                    await randomDelay(1000, 2000);
+                } else {
+                    console.log(`Guessed answer index ${answerIndex} is out of bounds.`);
                 }
             } else {
-                console.log(`Guessed answer "${guessedAnswer}" is not among valid options (${lettersInPrompt}).`);
+                console.log(`Guessed answer "${guessedAnswer}" is invalid or out of range.`);
             }
-        } catch (err) {
-            console.error('Error communicating with OpenAI:', err);
-        } finally {
-            // Remove the question from processedMCQQuestions regardless of outcome to allow retries if needed
-            processedMCQQuestions.delete(questionKey);
+        } else {
+            // After two failed attempts, pick a random choice
+            console.log("LLM failed to provide a valid answer after two attempts. Picking a random choice.");
+            const randomChoiceIndex = Math.floor(Math.random() * numChoices);
+            const randomChoice = currentAnswers[randomChoiceIndex];
+            const randomLetter = String.fromCharCode(65 + randomChoiceIndex);
+            console.log(`Picking a random choice: ${randomLetter}) ${randomChoice}`);
+            const choiceElements = await page.$$('.choice');
+            if (choiceElements[randomChoiceIndex]) {
+                await randomDelay(2000, 5000);
+                await humanClick(page, choiceElements[randomChoiceIndex]);
+                console.log(`Clicked on the random choice: ${randomLetter}) ${randomChoice}`);
+                // Enqueue the answer to save it
+                enqueueSave(currentQuestion, currentAnswers, randomChoice);
+                await randomDelay(1000, 2000);
+            } else {
+                console.log(`Random choice index ${randomChoiceIndex} is out of bounds.`);
+            }
         }
+    
+        // Remove the question from processedMCQQuestions regardless of outcome to prevent reprocessing
+        processedMCQQuestions.delete(questionKey);
     };
     
+    const handleStopClickQuestion = async (page, browser, pollingIntervalId) => {
+        console.log("Detected a 'Click me to stop' question.");
 
+        // Select the "Click me to stop" button
+        const stopButton = await page.$('#Click_me_to_stop');
+        if (stopButton) {
+            // Perform a human-like click on the button
+            await humanClick(page, stopButton);
+            console.log("Clicked the 'Click me to stop' button.");
+        } else {
+            console.log("'Click me to stop' button not found.");
+        }
 
+        // Wait for 10 seconds
+        console.log("Waiting for 10 seconds before terminating...");
+        await new Promise(resolve => setTimeout(resolve, 10000));
 
-    // Handle Reload Question
+        // Clear the polling interval to stop further question handling
+        if (pollingIntervalId) {
+            clearInterval(pollingIntervalId);
+            console.log("Polling stopped.");
+        }
+
+        try {
+            await browser.close();
+            console.log("Browser closed.");
+        } catch (err) {
+            console.error("Error closing the browser:", err);
+        }
+
+        // Terminate the script
+        console.log("Terminating the script as per 'Click me to stop' instruction.");
+        process.exit(0);
+    };
+
+    
+
     const handleReloadQuestion = async (page) => {
         console.log("Reloading the question due to previous error.");
         // Implement any specific reload logic if necessary
     };
 
-    // Start Handling Questions
-    if (await safeWaitForSelector('#single-question', page) || await safeWaitForSelector('#next-btn', page)) {
+    if (await safeWaitForSelector('#single-question', page, 4000) || await safeWaitForSelector('#next-btn', page, 1000)) {
         console.log("First question element detected.");
         await handleQuestion();
         await randomDelay(1800, 2500);
         console.log("Polling for new questions...");
-        setInterval(handleQuestion, 2000 + Math.floor(Math.random() * 500)); // Poll every 2-2.5 seconds
+        questionPollingInterval = setInterval(handleQuestion, 2000 + Math.floor(Math.random() * 500)); // Poll every 2-2.5 seconds
     } else {
         console.log("Could not find the first question element. Exiting.");
     }
 
-    // Graceful Shutdown
     process.on('SIGINT', async () => {
         console.log('\nGracefully shutting down...');
         while (saveQueue.length > 0 || isSaving) {
@@ -984,5 +1227,3 @@ const tryClick15MinButton = async (page) => {
         process.exit(0);
     });
 })();
-
-
