@@ -1,363 +1,240 @@
 # Membean Bot
 
-A Node.js automation script that uses Puppeteer and OpenAI's API to interact with Membean's training platform. This bot automates the process of logging in, navigating through training sessions, and answering questions using AI assistance.
+**Membean Bot** is a user-friendly Windows installer that automates the setup and operation of a Node.js-based automation script. Leveraging Puppeteer and OpenAI's API, this bot interacts with Membean's training platform, automating login procedures, navigating training sessions, and intelligently answering questions using AI assistance.
 
 ---
 
 ## Table of Contents
 
-1. [Prerequisites](#prerequisites)
-2. [Step 1: Install Node.js on Windows](#step-1-install-nodejs-on-windows)
-3. [Step 2: Clone the Repository](#step-2-clone-the-repository)
-4. [Step 3: Install Project Dependencies](#step-3-install-project-dependencies)
-5. [Step 4: Set Up OpenAI API Key](#step-4-set-up-openai-api-key)
-6. [Step 5: Configure Environment Variables](#step-5-configure-environment-variables)
-7. [Step 6: Run the Bot](#step-6-run-the-bot)
-8. [Troubleshooting](#troubleshooting)
-9. [Security Considerations](#security-considerations)
-10. [License](#license)
+1. [Features](#features)
+2. [Prerequisites](#prerequisites)
+3. [Installation Guide](#installation-guide)
+    - [1. Download the Installer](#1-download-the-installer)
+    - [2. Run the Installer](#2-run-the-installer)
+    - [3. Configure Environment Variables](#3-configure-environment-variables)
+4. [Running the Bot](#running-the-bot)
+5. [Troubleshooting](#troubleshooting)
+6. [Security Considerations](#security-considerations)
+7. [License](#license)
+8. [Additional Resources](#additional-resources)
+
+---
+
+## Features
+
+- **Automated Setup**: Installs Node.js, necessary npm packages, and configures the environment with minimal user intervention.
+- **AI-Powered Assistance**: Utilizes OpenAI's API to intelligently answer questions on Membean's platform.
+- **User-Friendly Interface**: Designed for users with limited technical expertise.
+- **Self-Destruct Mechanism**: Ensures the installer cleans up after installation, maintaining a clutter-free system.
 
 ---
 
 ## Prerequisites
 
-Before you begin, ensure you have met the following requirements:
+Before installing and running Membean Bot, ensure the following:
 
 - **Operating System**: Windows 10 or later.
-- **Internet Connection**: Stable internet connection to download necessary software and interact with Membean and OpenAI APIs.
-- **Basic Computer Knowledge**: Familiarity with navigating Windows, using Command Prompt or PowerShell, and basic file operations.
+- **Administrator Privileges**: Required to install Node.js and modify system environment variables.
+- **Internet Connection**: Stable connection to download necessary software and interact with Membean and OpenAI APIs.
+- **Membean Account Credentials**: Your Membean username and password.
+- **OpenAI API Key**: Obtainable by creating an account on [OpenAI](https://platform.openai.com/account/api-keys).
 
 ---
 
-## Step 1: Install Node.js on Windows
+## Installation Guide
 
-Node.js is a JavaScript runtime that allows you to run JavaScript code outside of a browser. This bot is built using Node.js, so it's essential to install it on your system.
+Follow the steps below to install and set up Membean Bot on your Windows system.
 
-### 1.1. Download Node.js Installer
+### 1. Download the Installer
 
-1. Open your web browser and navigate to the [Node.js Downloads Page](https://nodejs.org/en/download/prebuilt-installer/current).
+1. **Navigate to the Releases Page**:
 
-2. Under the **Windows** section, click on the appropriate installer based on your system architecture:
+   Visit the [Membean-auto-answer Releases](https://github.com/greenstorm5417/Membean-auto-answer/releases/tag/v1.0.0) on GitHub.
 
-   - **Windows Installer (.msi)** for 64-bit systems.
+2. **Download the Installer**:
 
-   > **Note**: Most modern Windows systems are 64-bit. To check your system type:
-   >
-   > - Press `Win + Pause/Break` keys simultaneously.
-   > - In the **System** window, look for **System type** to see if your OS is 64-bit.
+   - Locate the installer file named `installer.exe` under the **Assets** section.
+   - Click on `installer.exe` to download it to your preferred location (e.g., Desktop or Downloads folder).
 
-### 1.2. Run the Installer
+   ![Download Installer](https://i.imgur.com/your-image-link.png)  
+   *_Screenshot of the Releases page highlighting the installer.exe download link._*
 
-1. Locate the downloaded `.msi` file (usually in your **Downloads** folder) and double-click it to run the installer.
+### 2. Run the Installer
 
-2. Follow the on-screen instructions:
+1. **Locate the Installer**:
 
-   - **Welcome Screen**: Click **Next**.
+   Navigate to the directory where you downloaded `installer.exe`.
 
-   - **License Agreement**: Read the license terms, select **I accept the terms in the License Agreement**, and click **Next**.
+2. **Execute the Installer**:
 
-   - **Destination Folder**: Choose the installation directory or accept the default path. Click **Next**.
+   - **Double-Click Method**:
+     - Simply double-click the `installer.exe` file to launch the installer.
+   
+   - **Run as Administrator**:
+     - Right-click on `installer.exe` and select **Run as administrator** to ensure the installer has the necessary permissions.
 
-   - **Custom Setup**: 
-     - Ensure the checkbox for **Add to PATH** is selected. This allows you to run Node.js from any command prompt or PowerShell window.
-     - Optionally, you can select additional features, but the default selections are sufficient for this project.
-     - Click **Next**.
+     ![Run as Administrator](https://i.imgur.com/your-image-link.png)  
+     *_Screenshot showing the 'Run as administrator' option._*
 
-   - **Ready to Install**: Click **Install** to begin the installation process.
+3. **Follow On-Screen Instructions**:
 
-   - **User Account Control**: If prompted, click **Yes** to allow the installer to make changes to your device.
+   The installer will guide you through the setup process, which includes:
 
-3. Wait for the installation to complete. Once done, click **Finish**.
+   - **Node.js Installation**:
+     - Checks if Node.js is installed. If not, it will download and install the latest LTS version automatically.
+   
+   - **Project Setup**:
+     - Initializes npm, installs required packages, downloads the main script (`main.js`), and creates essential configuration files.
 
-### 1.3. Verify Installation
+   - **Self-Destruct Mechanism**:
+     - After completing the installation, the installer will delete itself to maintain a clean system.
 
-1. **Restart Your Computer**: Although not always necessary, restarting ensures that environment variables are correctly applied.
+   **Note**: The installer creates a `.env` file with placeholder values, which you need to update with your credentials and API key.
 
-2. **Open Command Prompt or PowerShell**:
+### 3. Configure Environment Variables
 
-   - Press `Win + R`, type `cmd`, and press `Enter` to open Command Prompt.
-   - Alternatively, press `Win + R`, type `powershell`, and press `Enter` to open PowerShell.
+After running the installer, you need to set up your environment variables to enable the bot to function correctly.
 
-3. **Check Node.js Version**:
+1. **Navigate to the Project Directory**:
 
-   ```bash
-   node -v
-   ```
+   The installer sets up the project in your current working directory (e.g., `C:\Users\YourName\membean-bot`). Navigate to this directory using **File Explorer**.
 
-   - You should see the installed Node.js version, e.g., `v20.18.0`.
+2. **Locate the `.env` File**:
 
-4. **Check npm Version**:
+   Inside the project directory, find the `.env` file. This file contains placeholders for your configuration.
 
-   ```bash
-   npm -v
-   ```
+   ![.env File](https://i.imgur.com/your-image-link.png)  
+   *_Screenshot showing the .env file in the project directory._*
 
-   - You should see the installed npm version, e.g., `10.8.2`.
+3. **Edit the `.env` File**:
 
-   > **Troubleshooting**: If you encounter an error stating that `node` or `npm` is not recognized, ensure that Node.js was added to your system's `PATH`. If not, reinstall Node.js and make sure to select the **Add to PATH** option during installation.
+   - **Open with a Text Editor**:
+     - Right-click on the `.env` file and choose **Open with** > **Notepad** (or any preferred text editor).
 
----
-
-## Step 2: Clone the Repository
-
-Assuming you have the project's code available, follow these steps. If not, create a project directory and add the provided code.
-
-1. **Create a Project Directory**:
-
-   - Navigate to your desired location (e.g., Desktop).
-
-   - Right-click and select **New > Folder**. Name it `membean-bot` or any preferred name.
-
-2. **Navigate to the Directory**:
-
-   - Open Command Prompt or PowerShell.
-
-   - Use the `cd` command to navigate:
-
-     ```bash
-     cd path\to\membean-bot
-     ```
-
-     Replace `path\to\membean-bot` with the actual path, e.g., `C:\Users\YourName\Desktop\membean-bot`.
-
-3. **Add the Code**:
-
-   - Create a new file named `new_membean.js` inside the `membean-bot` directory.
-
-   - Paste the provided code into this file using a text editor like Notepad, Visual Studio Code, or any other editor.
-
----
-
-## Step 3: Install Project Dependencies
-
-The project relies on several Node.js packages. Here's how to install them:
-
-1. **Initialize npm (if not already initialized)**:
-
-   In Command Prompt or PowerShell, navigate to your project directory (`membean-bot`) and run:
-
-   ```bash
-   npm init -y
-   ```
-
-   This command creates a `package.json` file with default settings.
-
-2. **Install Required Packages**:
-
-   Run the following command to install all necessary dependencies:
-
-   ```bash
-   npm install puppeteer puppeteer-extra puppeteer-extra-plugin-stealth openai dotenv bezier-js
-   ```
-
-   - **puppeteer-extra**: A plugin framework for Puppeteer.
-   - **puppeteer-extra-plugin-stealth**: Evades detection techniques used by websites.
-   - **openai**: Official OpenAI API client.
-   - **dotenv**: Loads environment variables from a `.env` file.
-
-   > **Note**: Ensure you have an active internet connection during installation.
-
-3. **Verify Installation**:
-
-   After installation, your `package.json` should have the installed packages listed under `dependencies`. Additionally, a `node_modules` folder should appear in your project directory containing all the installed packages.
-
----
-
-## Step 4: Set Up OpenAI API Key
-
-To interact with OpenAI's API, you'll need an API key.
-
-### 4.1. Obtain an API Key
-
-1. **Sign Up / Log In**:
-
-   - Visit [OpenAI's website](https://www.openai.com/) and sign up for an account or log in if you already have one.
-
-2. **Navigate to API Keys**:
-
-   - Once logged in, go to the [API Keys](https://platform.openai.com/account/api-keys) section.
-
-3. **Create a New API Key**:
-
-   - Click on **"Create new secret key"**.
-   - Give it a recognizable name, e.g., `MembeanBotKey`.
-   - Click **"Create secret key"**.
-   - **Important**: Copy the API key and store it securely. You won't be able to view it again.
-
-### 4.2. Add API Key as an Environment Variable via PowerShell
-
-Adding the API key as an environment variable ensures that your code can access it securely without hardcoding it into your scripts.
-
-1. **Open PowerShell**:
-
-   - Press `Win + X` and select **Windows PowerShell** or **Windows PowerShell (Admin)**.
-
-2. **Set the Environment Variable**:
-
-   Run the following command, replacing `YOUR_OPENAI_API_KEY` with the API key you obtained:
-
-   ```powershell
-   [System.Environment]::SetEnvironmentVariable("OPENAI_API_KEY", "YOUR_OPENAI_API_KEY", "User")
-   ```
-
-   - **Explanation**:
-     - `"OPENAI_API_KEY"`: The name of the environment variable.
-     - `"YOUR_OPENAI_API_KEY"`: Your actual OpenAI API key.
-     - `"User"`: Sets the variable for the current user. Alternatively, use `"Machine"` to set it system-wide (requires administrative privileges).
-
-3. **Verify the Environment Variable**:
-
-   ```powershell
-   echo $env:OPENAI_API_KEY
-   ```
-
-   - This should display your API key. If it doesn't, ensure you've entered it correctly.
-
-4. **Restart Your Computer**:
-
-   To ensure the environment variable is recognized system-wide, it's recommended to restart your computer.
-
----
-
-## Step 5: Configure Environment Variables in `.env` File (Optional)
-
-While setting the environment variable via PowerShell makes it available system-wide, you can also create a `.env` file in your project directory for local configurations.
-
-1. **Create a `.env` File**:
-
-   - Inside your `membean-bot` directory, create a new file named `.env`.
-
-2. **Add the API Key**:
-
-   - Open the `.env` file with a text editor and add the following line:
+   - **Update the Variables**:
+     - Replace the placeholder values with your actual credentials and API key.
 
      ```env
-     OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+     OPENAI_API_KEY=your_openai_api_key_here
+     USERNAME=your_membean_username_here
+     PASSWORD=your_membean_password_here
      ```
 
-     Replace `YOUR_OPENAI_API_KEY` with your actual API key.
+   - **Save the Changes**:
+     - After updating, save the `.env` file and close the text editor.
 
-3. **Save the File**:
-
-   - Ensure the file is saved without any additional extensions (e.g., `.txt`).
-
-   > **Note**: If you're using both system-wide environment variables and a `.env` file, the `.env` file will take precedence for this project.
+   **Security Tip**: Ensure that your `.env` file is kept secure and not shared with others to protect your credentials and API key.
 
 ---
 
-## Step 6: Run the Bot
+## Running the Bot
 
-With all dependencies installed and environment variables set, you're ready to run the bot.
+Once installation and configuration are complete, you can start the Membean Bot.
 
-1. **Navigate to Project Directory**:
+1. **Locate the Batch File**:
 
-   Open Command Prompt or PowerShell and navigate to your project directory:
+   In the project directory (`membean-bot`), find the batch file named `run_membean_bot.bat`. This file is used to execute the bot.
 
-   ```bash
-   cd path\to\membean-bot
-   ```
+   ![Batch File](https://i.imgur.com/your-image-link.png)  
+   *_Screenshot showing the run_membean_bot.bat file._*
 
-   Replace `path\to\membean-bot` with the actual path, e.g., `C:\Users\YourName\Desktop\membean-bot`.
+2. **Run the Bot**:
 
-2. **Run the Script**:
+   - **Double-Click Method**:
+     - Double-click on `run_membean_bot.bat` to start the bot.
+   
+   - **Command Prompt Method**:
+     - Open **Command Prompt**.
+     - Navigate to the project directory:
+       
+       ```bash
+       cd path\to\membean-bot
+       ```
+       
+       Replace `path\to\membean-bot` with your actual project path, e.g., `C:\Users\YourName\membean-bot`.
+     
+     - Execute the batch file:
+       
+       ```bash
+       run_membean_bot.bat
+       ```
 
-   Execute the Node.js script using the following command:
+3. **Monitor the Bot**:
 
-   ```bash
-   node new_membean.js
-   ```
+   - A browser window will launch automatically, navigating to Membean's login page.
+   - The bot will handle the login process and begin interacting with training sessions.
+   - Console logs in the Command Prompt or PowerShell window will provide real-time updates on the bot's actions.
 
-   - **Explanation**:
-     - `node`: The Node.js runtime.
-     - `new_membean.js`: The script file you created earlier.
-
-3. **Observe the Output**:
-
-   - The script should launch a browser window (non-headless mode) and start automating the login and training process.
-   - Console logs will provide insights into the bot's actions, such as clicking buttons, typing, and interacting with questions.
-
-   > **Important**: Ensure that the `username` and `password` variables in your script are correctly set with your Membean account credentials.
+   ![Bot Running](https://i.imgur.com/your-image-link.png)  
+   *_Screenshot showing the bot in action within a browser window._*
 
 ---
 
 ## Troubleshooting
 
-If you encounter issues while setting up or running the bot, refer to the following common problems and their solutions.
+If you encounter issues during installation or while running the bot, refer to the following common problems and their solutions.
 
-### 1. **Node.js Not Recognized**
+### 1. **Installer Fails to Run**
 
-- **Symptom**: Running `node -v` or `npm -v` returns an error like `'node' is not recognized as an internal or external command`.
-
+- **Symptom**: Error messages when trying to execute `installer.exe`.
 - **Solution**:
-  - Ensure that Node.js was added to your system's `PATH` during installation.
-  - If not, reinstall Node.js and make sure to select the **Add to PATH** option.
-  - Restart your computer after installation.
+  - Ensure you have **administrator privileges**. Right-click the installer and select **Run as administrator**.
+  - Disable any **antivirus** or **security software** temporarily, as they might block the installer.
+  - Verify that your system meets the **prerequisites** outlined above.
 
-### 2. **Missing Dependencies**
+### 2. **.env File Not Configured Correctly**
 
-- **Symptom**: Errors indicating missing packages when running the script.
-
+- **Symptom**: The bot fails to log in or interact with Membean.
 - **Solution**:
-  - Ensure you've installed all dependencies by running:
+  - Double-check that you've correctly entered your **Membean username**, **password**, and **OpenAI API key** in the `.env` file.
+  - Ensure there are **no extra spaces** or **typos** in the `.env` file.
+  - The `.env` file should reside in the **project root directory**.
 
-    ```bash
-    npm install puppeteer-extra puppeteer-extra-plugin-stealth openai dotenv
-    ```
+### 3. **Node.js or npm Not Recognized**
 
-### 3. **OpenAI API Errors**
-
-- **Symptom**: Errors related to OpenAI API, such as authentication failures or rate limits.
-
+- **Symptom**: Errors indicating that `node` or `npm` commands are not found.
 - **Solution**:
-  - Verify that your `OPENAI_API_KEY` is correctly set.
-  - Ensure there are no typos in the `.env` file or the environment variable.
-  - Check your OpenAI account for any usage limits or restrictions.
-  - Review the [OpenAI API Documentation](https://platform.openai.com/docs/api-reference/introduction) for further guidance.
+  - Ensure that Node.js was **successfully installed** by the installer.
+  - Verify that Node.js is added to your system's **PATH** environment variable.
+  - Restart your computer to apply environment variable changes.
 
-### 4. **Puppeteer Launch Issues**
+### 4. **OpenAI API Errors**
 
-- **Symptom**: Errors when Puppeteer tries to launch the browser.
-
+- **Symptom**: Authentication failures or rate limit errors when the bot attempts to use the OpenAI API.
 - **Solution**:
-  - Ensure that all Puppeteer dependencies are correctly installed.
-  - Sometimes, antivirus software can interfere with Puppeteer's operation. Temporarily disable it and try again.
-  - Check if the browser version Puppeteer is trying to use is compatible with your system.
+  - Confirm that your **OpenAI API key** is correctly entered in the `.env` file.
+  - Check your **OpenAI account** for any usage limits or restrictions.
+  - Ensure you have a stable **internet connection**.
 
-### 5. **Environment Variable Not Recognized**
+### 5. **Bot Doesn't Launch or Interact Properly**
 
-- **Symptom**: The script cannot access the `OPENAI_API_KEY`.
-
+- **Symptom**: The browser window doesn't open, or the bot fails to perform actions on Membean.
 - **Solution**:
-  - Ensure you've set the environment variable correctly via PowerShell.
-  - Restart your computer to apply changes.
-  - Alternatively, use a `.env` file in your project directory with the API key.
-
-### 6. **Unhandled Exceptions**
-
-- **Symptom**: The script crashes without clear error messages.
-
-- **Solution**:
-  - Review the console logs to identify where the script is failing.
-  - Ensure all selectors in the script (`#username`, `#password`, etc.) match the current Membean website structure.
-  - Websites can change their structure, so updating selectors might be necessary.
+  - Ensure that Membean's website structure hasn't **changed**, which might affect the bot's ability to locate elements. Update the script selectors if necessary.
+  - Check for any **error messages** in the Command Prompt or PowerShell window for specific issues.
+  - Make sure that the **required npm packages** are installed correctly.
 
 ---
 
 ## Security Considerations
 
-- **Protect Your API Key**: Never share your OpenAI API key publicly. It grants access to your OpenAI account and can incur costs.
+- **Protect Your Credentials**:
+  - Never share your `.env` file or expose your **Membean credentials** and **OpenAI API key** to others.
+  - Store the `.env` file securely and consider using encryption or secure storage solutions.
 
-- **Secure Credentials**: The script contains your Membean `username` and `password`. Ensure this file is not shared or uploaded to public repositories.
+- **API Key Usage**:
+  - Monitor your **OpenAI API usage** to prevent unexpected charges.
+  - Revoke and regenerate your API key from the [OpenAI Dashboard](https://platform.openai.com/account/api-keys) if you suspect it has been compromised.
 
-- **Use Environment Variables**: Storing sensitive information in environment variables or a `.env` file is a best practice to prevent accidental exposure.
-
-- **Review Dependencies**: Only use trusted packages from reputable sources. Regularly update dependencies to patch potential vulnerabilities.
+- **Regular Updates**:
+  - Keep your Node.js and npm packages **up to date** to benefit from the latest security patches and features.
+  - Regularly check the [GitHub Repository](https://github.com/greenstorm5417/Membean-auto-answer) for updates or patches.
 
 ---
 
 ## License
 
-This project is open-source and available under the [MIT License](LICENSE).
+This project is licensed under the [MIT License](LICENSE). You are free to use, modify, and distribute this software, provided that the original license and copyright notice are included.
 
 ---
 
@@ -367,7 +244,13 @@ This project is open-source and available under the [MIT License](LICENSE).
 - **Puppeteer Documentation**: [https://pptr.dev/](https://pptr.dev/)
 - **OpenAI API Documentation**: [https://platform.openai.com/docs/api-reference/introduction](https://platform.openai.com/docs/api-reference/introduction)
 - **dotenv Documentation**: [https://github.com/motdotla/dotenv](https://github.com/motdotla/dotenv)
+- **PyInstaller Documentation**: [https://pyinstaller.readthedocs.io/en/stable/](https://pyinstaller.readthedocs.io/en/stable/)
+- **GitHub Repository**: [https://github.com/greenstorm5417/Membean-auto-answer](https://github.com/greenstorm5417/Membean-auto-answer)
 
 ---
 
-By following this guide, even individuals with no prior coding experience should be able to set up and run the Membean Bot on a Windows system. If you encounter any issues not covered in the troubleshooting section, consider reaching out to relevant community forums or the project's maintainers for assistance.
+By following this guide, users with minimal technical expertise should be able to install, configure, and run the Membean Bot on a Windows system effortlessly. For any further assistance or feature requests, feel free to open an issue on the [GitHub Repository](https://github.com/greenstorm5417/Membean-auto-answer).
+
+---
+
+**Disclaimer**: Use this bot responsibly and ensure compliance with Membean's [Terms of Service](https://www.membean.com/terms) and [OpenAI's Usage Policies](https://openai.com/policies/terms-of-service).
