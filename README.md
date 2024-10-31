@@ -53,28 +53,20 @@ Follow the steps below to install and set up Membean Bot on your Windows system.
 
 2. **Download the Installer**:
 
-   - Locate the installer file named `installer.exe` under the **Assets** section.
-   - Click on `installer.exe` to download it to your preferred location (e.g., Desktop or Downloads folder).
-
-   ![Download Installer](https://i.imgur.com/your-image-link.png)  
-   *_Screenshot of the Releases page highlighting the installer.exe download link._*
+   - Locate the installer file named `membean_bot_installer.exe` under the **Assets** section.
+   - Click on `membean_bot_installer.exe` to download it to your preferred location (e.g., Desktop or Downloads folder).
 
 ### 2. Run the Installer
 
 1. **Locate the Installer**:
 
-   Navigate to the directory where you downloaded `installer.exe`.
+   Navigate to the directory where you downloaded `membean_bot_installer.exe`.
 
 2. **Execute the Installer**:
 
    - **Double-Click Method**:
      - Simply double-click the `installer.exe` file to launch the installer.
    
-   - **Run as Administrator**:
-     - Right-click on `installer.exe` and select **Run as administrator** to ensure the installer has the necessary permissions.
-
-     ![Run as Administrator](https://i.imgur.com/your-image-link.png)  
-     *_Screenshot showing the 'Run as administrator' option._*
 
 3. **Follow On-Screen Instructions**:
 
@@ -102,9 +94,6 @@ After running the installer, you need to set up your environment variables to en
 2. **Locate the `.env` File**:
 
    Inside the project directory, find the `.env` file. This file contains placeholders for your configuration.
-
-   ![.env File](https://i.imgur.com/your-image-link.png)  
-   *_Screenshot showing the .env file in the project directory._*
 
 3. **Edit the `.env` File**:
 
@@ -135,8 +124,6 @@ Once installation and configuration are complete, you can start the Membean Bot.
 
    In the project directory (`membean-bot`), find the batch file named `run_membean_bot.bat`. This file is used to execute the bot.
 
-   ![Batch File](https://i.imgur.com/your-image-link.png)  
-   *_Screenshot showing the run_membean_bot.bat file._*
 
 2. **Run the Bot**:
 
@@ -164,9 +151,6 @@ Once installation and configuration are complete, you can start the Membean Bot.
    - A browser window will launch automatically, navigating to Membean's login page.
    - The bot will handle the login process and begin interacting with training sessions.
    - Console logs in the Command Prompt or PowerShell window will provide real-time updates on the bot's actions.
-
-   ![Bot Running](https://i.imgur.com/your-image-link.png)  
-   *_Screenshot showing the bot in action within a browser window._*
 
 ---
 
