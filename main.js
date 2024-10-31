@@ -389,7 +389,7 @@ const saveResult = async (question, choices, answer, firstLetter) => {
 const getAnswerFromLLM = async (prompt, validResponses, options = {}) => {
     try {
         const response = await openai.chat.completions.create({
-            model: options.model || 'gpt-4',
+            model: options.model || 'gpt-4o-mini',
             messages: [
                 { role: 'system', content: options.systemPrompt || 'You are a helpful assistant.' },
                 { role: 'user', content: prompt },
@@ -950,7 +950,7 @@ const tryClick15MinButton = async (page) => {
                         fillBlankPrompt,
                         ['UNKNOWN', /^[a-zA-Z]+$/],
                         {
-                            model: 'gpt-4',
+                            model: 'gpt-4o-mini',
                             systemPrompt: 'You are an assistant that provides single-word answers based on given clues. Only respond with your answer; your answer should be a capital letter.',
                             max_tokens: 10,
                             temperature: 0,
@@ -1110,7 +1110,7 @@ const tryClick15MinButton = async (page) => {
         for (let attempt = 1; attempt <= maxLLMAttempts; attempt++) {
             try {
                 guessedAnswer = await getAnswerFromLLM(prompt, [...validLetters, 'UNKNOWN'], {
-                    model: 'gpt-4',
+                    model: 'gpt-4o-mini',
                     systemPrompt: 'You are an assistant that selects the best multiple-choice answer. You should only respond with the letter of the choice if you don’t know, then guess. Sometimes the answers will appear directly after the question; if this happens, just ignore them.',
                     max_tokens: 10,
                     temperature: 0,
