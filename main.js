@@ -3,34 +3,44 @@ const StealthPlugin = require('puppeteer-extra-plugin-stealth');
 const { Bezier } = require('bezier-js');
 const fs = require('fs').promises;
 const path = require('path');
+const crypto = require('crypto');
 const OpenAI = require("openai");
-require('dotenv').config();
+const dotenv = require('dotenv');
+
+dotenv.config({ path: path.join(__dirname, '.env'), override: true });
+
 
 let questionPollingInterval = null;
-
-// DONT CHANGE THIS it will flag the anti-cheat and your teacher can see that you cheated.
 const DEBUG_MOUSE_CURSOR = false;
-
-const openai = new OpenAI({});
-
-puppeteer.use(StealthPlugin());
-
 const resultsFilePath = path.join(__dirname, 'results.json');
-
 let currentMousePosition = { x: 0, y: 0 };
 
 const username = process.env.MEMUSERNAME;
 const password = process.env.MEMPASSWORD;
 
+function getDecryptedApiKey() {
+    console.log("Decrypting API Key...");
+    const secretKey = Buffer.from(process.env.SECRET_KEY, 'base64');
+    const [iv, ciphertext] = process.env.ENCRYPTED_KEY.split(':').map(part => Buffer.from(part, 'base64'));
+    const decipher = crypto.createDecipheriv('aes-256-cbc', secretKey, iv);
+    let decrypted = decipher.update(ciphertext, 'base64', 'utf8');
+    decrypted += decipher.final('utf8');
+    return decrypted;
+}
+
+const openaiApiKey = process.env.OPENAI_API_KEY || getDecryptedApiKey();
+const openai = new OpenAI({ apiKey: openaiApiKey });
+
+puppeteer.use(StealthPlugin());
 
 const minDelay = 1.222222;
 const maxDelay = 1.444444;
 const sessionMultiplier = minDelay + Math.random() * (maxDelay - minDelay);
-
 console.log(`Session multiplier: ${sessionMultiplier}`);
 
 const saveQueue = [];
 let isSaving = false;
+
 
 
 const randomDelay = (min = 500, max = 1500) => 
