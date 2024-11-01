@@ -4,10 +4,11 @@ const { Bezier } = require('bezier-js');
 const fs = require('fs').promises;
 const path = require('path');
 const OpenAI = require("openai");
-require('dotenv').config({ path: path.join(__dirname, '.env') });
+require('dotenv').config();
 
 let questionPollingInterval = null;
 
+// DONT CHANGE THIS it will flag the anti-cheat and your teacher can see that you cheated.
 const DEBUG_MOUSE_CURSOR = false;
 
 const openai = new OpenAI({});
@@ -22,7 +23,10 @@ const username = process.env.MEMUSERNAME;
 const password = process.env.MEMPASSWORD;
 
 
-const sessionMultiplier = 1.1 + Math.random() * (1.444444 - 1.1);
+const minDelay = 1.222222;
+const maxDelay = 1.444444;
+const sessionMultiplier = minDelay + Math.random() * (maxDelay - minDelay);
+
 console.log(`Session multiplier: ${sessionMultiplier}`);
 
 const saveQueue = [];
@@ -277,30 +281,90 @@ const humanType = async (page, selector, text, maxRetries = 2, retryDelay = 1000
         await randomDelay(300, 700);
 
         let typedText = '';
-        const randomChars = 'abcdefghijklmnopqrstuvwxyz';
 
-        for (const char of text) {
-            // 3% chance to make a mistake
-            if (Math.random() < 0.03 && typedText.length > 0) {
-                const wrongChar = randomChars.charAt(Math.floor(Math.random() * randomChars.length));
-                await page.type(selector, wrongChar, { delay: Math.floor(Math.random() * 100) + 100 });
-                typedText += wrongChar;
+        // Define nearby keys for each character based on a QWERTY keyboard layout
+        const nearbyKeys = {
+            'a': ['s', 'q', 'w', 'z'],
+            'b': ['v', 'g', 'h', 'n'],
+            'c': ['x', 'd', 'f', 'v'],
+            'd': ['s', 'e', 'r', 'f', 'c', 'x'],
+            'e': ['w', 's', 'd', 'r'],
+            'f': ['d', 'r', 't', 'g', 'v', 'c'],
+            'g': ['f', 't', 'y', 'h', 'b', 'v'],
+            'h': ['g', 'y', 'u', 'j', 'n', 'b'],
+            'i': ['u', 'j', 'k', 'o'],
+            'j': ['h', 'u', 'i', 'k', 'm', 'n'],
+            'k': ['j', 'i', 'o', 'l', 'm'],
+            'l': ['k', 'o', 'p'],
+            'm': ['n', 'j', 'k'],
+            'n': ['b', 'h', 'j', 'm'],
+            'o': ['i', 'k', 'l', 'p'],
+            'p': ['o', 'l'],
+            'q': ['w', 'a'],
+            'r': ['e', 'd', 'f', 't'],
+            's': ['a', 'w', 'e', 'd', 'x', 'z'],
+            't': ['r', 'f', 'g', 'y'],
+            'u': ['y', 'h', 'j', 'i'],
+            'v': ['c', 'f', 'g', 'b'],
+            'w': ['q', 'a', 's', 'e'],
+            'x': ['z', 's', 'd', 'c'],
+            'y': ['t', 'g', 'h', 'u'],
+            'z': ['a', 's', 'x'],
+            ' ': [] 
+            // Add uppercase letters if needed
+        };
 
-                await randomDelay(100, 300); // Brief pause
+        // Helper function to check if a character is uppercase
+        const isUpperCase = (char) => {
+            return char === char.toUpperCase() && char !== char.toLowerCase();
+        };
 
-                await page.keyboard.press('Backspace'); // Delete mistake
-                typedText = typedText.slice(0, -1); // Remove last char
+        // Function to get nearby characters for a given character
+        const getNearbyChars = (char) => {
+            const lowerChar = char.toLowerCase();
+            return nearbyKeys[lowerChar] || [];
+        };
+
+        for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const isLastChar = i === text.length - 1;
+            const originalCharIsUpper = isUpperCase(char);
+
+            // Decide whether to make a mistake only if it's not the last character
+            if (!isLastChar && Math.random() < 0.03 && char !== ' ') { 
+                const neighbors = getNearbyChars(char);
+                
+                if (neighbors.length > 0) {
+                    // Select a random nearby character
+                    const wrongCharLower = neighbors[Math.floor(Math.random() * neighbors.length)];
+                    
+                    // Adjust the case of the wrong character to match the original character
+                    const wrongChar = originalCharIsUpper ? wrongCharLower.toUpperCase() : wrongCharLower.toLowerCase();
+                    
+                    // Type the wrong character
+                    await page.type(selector, wrongChar, { delay: Math.floor(Math.random() * 100) + 100 });
+                    typedText += wrongChar;
+
+                    await randomDelay(100, 300); // Brief pause
+
+                    // Simulate backspace to delete the wrong character
+                    await page.keyboard.press('Backspace');
+                    typedText = typedText.slice(0, -1);
+                }
+                // If no neighbors are defined, skip making a mistake
             }
 
+            // Type the correct character
             await page.type(selector, char, { delay: Math.floor(Math.random() * 200) + 30 });
             typedText += char;
 
-            if (char === ' ' && Math.random() < 0.3) { // Pause after spaces
+            // Optional: Add pauses after spaces
+            if (char === ' ' && Math.random() < 0.3) { // 30% chance to pause after a space
                 await randomDelay(200, 700);
             }
         }
 
-        console.log("Human-like typing with mistakes and pauses performed.");
+        console.log("Human-like typing with selective mistakes and pauses performed.");
     } catch (err) {
         console.error(`Failed to type into "${selector}":`, err.message);
     }
