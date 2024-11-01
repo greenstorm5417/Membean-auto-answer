@@ -18,8 +18,8 @@ const resultsFilePath = path.join(__dirname, 'results.json');
 
 let currentMousePosition = { x: 0, y: 0 };
 
-const username = process.env.USERNAME;
-const password = process.env.PASSWORD;
+const username = process.env.MEMUSERNAME;
+const password = process.env.MEMPASSWORD;
 
 
 const sessionMultiplier = 1.1 + Math.random() * (1.444444 - 1.1);
