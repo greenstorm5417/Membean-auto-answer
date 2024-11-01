@@ -4,7 +4,7 @@ const { Bezier } = require('bezier-js');
 const fs = require('fs').promises;
 const path = require('path');
 const OpenAI = require("openai");
-require('dotenv').config();
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 
 let questionPollingInterval = null;
 
