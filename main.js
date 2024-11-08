@@ -33,8 +33,8 @@ const openai = new OpenAI({ apiKey: openaiApiKey });
 
 puppeteer.use(StealthPlugin());
 
-const minDelay = 1.222222;
-const maxDelay = 1.444444;
+const minDelay = 1.555555;
+const maxDelay = 1.888888;
 const sessionMultiplier = minDelay + Math.random() * (maxDelay - minDelay);
 console.log(`Session multiplier: ${sessionMultiplier}`);
 
